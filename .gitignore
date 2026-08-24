@@ -6,3 +6,7 @@ dist/
 .DS_Store
 coverage/
 references/
+data/
+backups/
+*.sqlite3-shm
+*.sqlite3-wal

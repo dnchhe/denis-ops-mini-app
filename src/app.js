@@ -11,8 +11,45 @@ import {
   submitCheckin,
 } from './model.js'
 
-let state = { ...createInitialState(), confirmCompletion: false }
+let state = { ...createInitialState(), confirmCompletion: false, serverConnected: false }
 const app = document.querySelector('#app')
+const telegram = window.Telegram?.WebApp
+telegram?.ready()
+telegram?.expand()
+
+async function apiRequest(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Telegram-Init-Data': telegram?.initData || '',
+      ...(options.headers || {}),
+    },
+  })
+  if (!response.ok) throw new Error(`API ${response.status}`)
+  return response.json()
+}
+
+function mergeServerState(serverState) {
+  return {
+    ...state,
+    ...serverState,
+    selectedProjectId: state.selectedProjectId,
+    selectedVacancyId: state.selectedVacancyId,
+    profileOpen: state.profileOpen,
+    confirmCompletion: false,
+    serverConnected: true,
+  }
+}
+
+async function loadServerState() {
+  try {
+    const serverState = await apiRequest('/api/state')
+    setState(mergeServerState(serverState))
+  } catch (error) {
+    console.warn('Server state is unavailable; demonstration state remains active', error)
+  }
+}
 
 const navItems = [
   ['today', '⌂', 'Сегодня'],
@@ -235,9 +272,24 @@ function bindEvents() {
   document.querySelectorAll('[data-nav]').forEach((button) => button.addEventListener('click', () => setState({ ...state, activeScreen: button.dataset.nav, selectedProjectId: null, selectedVacancyId: null })))
   document.querySelectorAll('[data-open-profile]').forEach((button) => button.addEventListener('click', () => setState({ ...state, profileOpen: true })))
   document.querySelector('[data-close-profile]')?.addEventListener('click', () => setState({ ...state, profileOpen: false }))
-  document.querySelectorAll('[data-task-status]').forEach((button) => button.addEventListener('click', () => setState(setCurrentTaskStatus(state, button.dataset.taskStatus))))
+  document.querySelectorAll('[data-task-status]').forEach((button) => button.addEventListener('click', async () => {
+    const nextStatus = button.dataset.taskStatus
+    const taskId = state.currentTask.id
+    setState(setCurrentTaskStatus(state,nextStatus))
+    try {
+      const serverState = await apiRequest(`/api/tasks/${taskId}/status`, { method:'POST', body:JSON.stringify({ status:nextStatus }) })
+      setState(mergeServerState(serverState))
+    } catch (error) { console.warn('Task status was not saved',error) }
+  }))
   document.querySelector('[data-complete-current]')?.addEventListener('click', () => setState({ ...state, confirmCompletion: true }))
-  document.querySelector('[data-confirm-completion]')?.addEventListener('click', () => setState({ ...completeCurrentTask(state), confirmCompletion: false }))
+  document.querySelector('[data-confirm-completion]')?.addEventListener('click', async () => {
+    const taskId = state.currentTask.id
+    setState({ ...completeCurrentTask(state), confirmCompletion:false })
+    try {
+      const result = await apiRequest(`/api/tasks/${taskId}/complete`, { method:'POST', body:'{}' })
+      setState(mergeServerState(result.state))
+    } catch (error) { console.warn('Task completion was not saved',error) }
+  })
   document.querySelector('[data-cancel-completion]')?.addEventListener('click', () => setState({ ...state, confirmCompletion: false }))
   document.querySelector('[data-skip-task]')?.addEventListener('click', () => {
     const candidates = state.dayTasks.filter((task) => task.status !== 'done' && task.id !== state.currentTask.id).sort((a,b) => a.priority-b.priority)
@@ -251,8 +303,23 @@ function bindEvents() {
   document.querySelector('[data-back-projects]')?.addEventListener('click', () => setState({ ...state, selectedProjectId: null }))
   document.querySelectorAll('[data-vacancy-id]').forEach((button) => button.addEventListener('click', () => setState({ ...state, selectedVacancyId: button.dataset.vacancyId })))
   document.querySelector('[data-back-vacancies]')?.addEventListener('click', () => setState({ ...state, selectedVacancyId: null }))
-  document.querySelector('[data-prepare-response]')?.addEventListener('click', () => setState(setVacancyStatus(state,state.selectedVacancyId,'preparing')))
-  document.querySelectorAll('[data-vacancy-action]').forEach((button) => button.addEventListener('click', () => setState(setVacancyStatus(state,state.selectedVacancyId,button.dataset.vacancyAction))))
+  document.querySelector('[data-prepare-response]')?.addEventListener('click', async () => {
+    const vacancyId = state.selectedVacancyId
+    setState(setVacancyStatus(state,vacancyId,'preparing'))
+    try {
+      const result = await apiRequest(`/api/vacancies/${vacancyId}/status`, { method:'POST', body:JSON.stringify({ status:'preparing' }) })
+      setState(mergeServerState(result.state))
+    } catch (error) { console.warn('Vacancy status was not saved',error) }
+  })
+  document.querySelectorAll('[data-vacancy-action]').forEach((button) => button.addEventListener('click', async () => {
+    const vacancyId = state.selectedVacancyId
+    const nextStatus = button.dataset.vacancyAction
+    setState(setVacancyStatus(state,vacancyId,nextStatus))
+    try {
+      const result = await apiRequest(`/api/vacancies/${vacancyId}/status`, { method:'POST', body:JSON.stringify({ status:nextStatus }) })
+      setState(mergeServerState(result.state))
+    } catch (error) { console.warn('Vacancy status was not saved',error) }
+  }))
   document.querySelectorAll('[data-energy]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, energy:Number(button.dataset.energy) } })))
   document.querySelectorAll('[data-mood]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, mood:Number(button.dataset.mood) } })))
   document.querySelectorAll('[data-focus]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, focus:Number(button.dataset.focus) } })))
@@ -261,9 +328,14 @@ function bindEvents() {
   document.querySelectorAll('[data-sleep-hours]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, sleepHours:Number(button.dataset.sleepHours) } })))
   document.querySelectorAll('[data-distraction]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, distraction:button.dataset.distraction } })))
   document.querySelectorAll('[data-wellbeing-period]').forEach((button) => button.addEventListener('click', () => setState({ ...state, wellbeingPeriod:Number(button.dataset.wellbeingPeriod) })))
-  document.querySelector('[data-submit-checkin]')?.addEventListener('click', () => {
-    const withEntry = addWellbeingEntry(state,state.checkin)
-    setState({ ...withEntry, checkinResult:submitCheckin(state.checkin) })
+  document.querySelector('[data-submit-checkin]')?.addEventListener('click', async () => {
+    const localResult = submitCheckin(state.checkin)
+    const localState = addWellbeingEntry(state,state.checkin)
+    setState({ ...localState, checkinResult:localResult })
+    try {
+      const result = await apiRequest('/api/checkins', { method:'POST', body:JSON.stringify(state.checkin) })
+      setState({ ...mergeServerState(result.state), checkinResult:localResult })
+    } catch (error) { console.warn('Check-in was not saved',error) }
   })
 }
 
@@ -275,3 +347,4 @@ function render() {
 }
 
 render()
+loadServerState()
