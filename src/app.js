@@ -1,6 +1,9 @@
 import {
+  addWellbeingEntry,
+  calculateWellbeingStats,
   completeCurrentTask,
   createInitialState,
+  getCheckinType,
   getProfileStats,
   getScreenTitle,
   setCurrentTaskStatus,
@@ -147,14 +150,62 @@ function scaleButtons(type, value) {
   return `<div class="scale-row">${[1,2,3,4,5].map((number) => `<button class="${value === number ? 'selected' : ''}" data-${type}="${number}">${number}</button>`).join('')}</div>`
 }
 
+function currentCheckinType() {
+  const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone:'Europe/Moscow', hour:'2-digit', hour12:false }).format(new Date()))
+  return getCheckinType(hour)
+}
+
+function metricQuestion(kicker, title, type, value) {
+  return `<div class="check-question"><p class="kicker">${kicker}</p><h2>${title}</h2>${scaleButtons(type,value)}</div>`
+}
+
 function checkinView() {
-  return `${header('30–60 секунд')}
-    <section class="checkin-sheet"><div class="checkin-status"><span style="width:${state.checkin.energy && state.checkin.focus ? '72%' : state.checkin.energy ? '38%' : '12%'}"></span></div>
-      <div class="check-question"><p class="kicker">Энергия</p><h2>Сколько сил сейчас?</h2>${scaleButtons('energy',state.checkin.energy)}</div>
-      <div class="check-question"><p class="kicker">Фокус</p><h2>Как с концентрацией?</h2>${scaleButtons('focus',state.checkin.focus)}</div>
+  const type = currentCheckinType()
+  const meta = {
+    morning: ['Утренний чек-ин','Как начался день'],
+    day: ['Дневной чек-ин','Как проходит рабочий день'],
+    evening: ['Вечерний чек-ин','Как завершился день'],
+  }[type]
+  const sleep = type === 'morning' ? `<div class="check-question"><p class="kicker">Сон</p><h2>Сколько часов спал?</h2><div class="choice-chips hours">${[5,6,7,8,9].map((hours) => `<button class="${state.checkin.sleepHours === hours ? 'selected' : ''}" data-sleep-hours="${hours}">${hours} ч</button>`).join('')}</div></div>${metricQuestion('Качество сна','Насколько восстановился?','sleepQuality',state.checkin.sleepQuality)}` : ''
+  return `${header(meta[0])}
+    <div class="checkin-intro"><span>${{morning:'☼',day:'◐',evening:'◒'}[type]}</span><div><p class="kicker">${meta[0]}</p><h2>${meta[1]}</h2><small>Время сохранится автоматически</small></div></div>
+    <section class="checkin-sheet"><div class="checkin-status"><span style="width:${state.checkin.energy && state.checkin.mood ? '68%' : state.checkin.energy ? '35%' : '10%'}"></span></div>
+      ${sleep}
+      ${metricQuestion('Энергия','Сколько сил сейчас?','energy',state.checkin.energy)}
+      ${metricQuestion('Настроение','Как ты себя чувствуешь?','mood',state.checkin.mood)}
+      ${metricQuestion('Концентрация','Насколько легко держать фокус?','focus',state.checkin.focus)}
+      ${metricQuestion('Тревога','Насколько тревожно?','anxiety',state.checkin.anxiety)}
       <div class="check-question"><p class="kicker">Контекст</p><h2>Что отвлекает?</h2><div class="choice-chips">${[['phone','Телефон'],['tasks','Другие задачи'],['state','Состояние'],['none','Ничего']].map(([key,label]) => `<button class="${state.checkin.distraction === key ? 'selected' : ''}" data-distraction="${key}">${label}</button>`).join('')}</div></div>
       <button class="complete-checkin" data-submit-checkin>Завершить чек-ин</button>
     </section>${state.checkinResult ? `<div class="result-note"><span>✓</span><div><small>Следующее действие</small><b>${state.checkinResult.replace('Следующее действие: ','')}</b></div></div>` : ''}`
+}
+
+function wellbeingSection() {
+  const entries = state.wellbeingHistory
+  const stats = calculateWellbeingStats(entries)
+  const typeNames = { morning:'Утро', day:'День', evening:'Вечер' }
+  const typeTimes = { morning:'07:00–11:59', day:'12:00–17:59', evening:'18:00–23:59' }
+  const days = [18,19,20,21,22,23,24]
+  const energyByDay = days.map((day) => {
+    const dayEntries = entries.filter((entry) => entry.day === day)
+    const average = dayEntries.length ? dayEntries.reduce((sum,entry) => sum + entry.energy,0) / dayEntries.length : 0
+    return Math.round(average / 5 * 100)
+  })
+  return `<section class="wellbeing-section">
+    <div class="wellbeing-head"><div><p class="kicker">Состояние</p><h2>Последние ${state.wellbeingPeriod} дней</h2></div><div class="period-toggle"><button class="${state.wellbeingPeriod === 7 ? 'active' : ''}" data-wellbeing-period="7">7</button><button class="${state.wellbeingPeriod === 30 ? 'active' : ''}" data-wellbeing-period="30">30</button></div></div>
+    <div class="demo-data-label">Демонстрационные данные · ${stats.sampleSize} чек-ин</div>
+    <div class="wellbeing-metrics">
+      <div><small>Энергия</small><b>${stats.averageEnergy}</b><span>/ 5</span></div>
+      <div><small>Настроение</small><b>${stats.averageMood}</b><span>/ 5</span></div>
+      <div><small>Фокус</small><b>${stats.averageFocus}</b><span>/ 5</span></div>
+      <div><small>Тревога</small><b>${stats.averageAnxiety}</b><span>/ 5</span></div>
+      <div><small>Сон</small><b>${stats.averageSleep}</b><span>ч</span></div>
+      <div><small>Качество сна</small><b>${stats.averageSleepQuality}</b><span>/ 5</span></div>
+    </div>
+    <div class="peak-card"><div class="peak-clock">◷</div><div><p class="kicker">Пиковая энергия</p><h3>${typeNames[stats.peakEnergyType]}</h3><span>${typeTimes[stats.peakEnergyType]}</span></div><b>↑</b></div>
+    <div class="energy-chart"><div class="section-line"><h3>Энергия по дням</h3><span>средний балл</span></div><div class="energy-bars">${energyByDay.map((height,index) => `<i style="height:${height}%" class="${index === 6 ? 'active' : ''}"><b>${Math.round(height/20*10)/10}</b></i>`).join('')}</div><div class="energy-labels">${['18','19','20','21','22','23','24'].map((day) => `<small>${day}</small>`).join('')}</div></div>
+    <div class="insight-note"><span>≈</span><p><b>Наблюдение</b> В демонстрационных данных энергия выше вечером. Это гипотеза, которую нужно проверить на реальных чек-инах за 7–14 дней.</p></div>
+  </section>`
 }
 
 function profileOverlay() {
@@ -165,6 +216,7 @@ function profileOverlay() {
     <section class="profile-rings"><div class="stat-ring mint-ring" style="--value:${state.weeklyFocus.progress * 3.6}deg"><span><b>${state.weeklyFocus.progress}%</b><small>Неделя</small></span></div><div class="stat-ring amber-ring" style="--value:${completion * 3.6}deg"><span><b>${completion}%</b><small>Сегодня</small></span></div></section>
     <section class="profile-grid"><div><b>${stats.activeProjects}</b><span>Активных проекта</span></div><div><b>${stats.riskyProjects}</b><span>Проекта с риском</span></div><div><b>${stats.totalVacancies}</b><span>Вакансии</span></div><div><b>${stats.responsesPreparing}</b><span>Готовим отклики</span></div></section>
     <section class="profile-block"><div class="section-line"><h2>Активность</h2><span>7 дней</span></div><div class="bars">${[34,52,28,68,42,78,40].map((height,index) => `<i style="height:${height}%" class="${index === 6 ? 'active' : ''}"></i>`).join('')}</div><div class="bar-labels">${['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].map((day) => `<small>${day}</small>`).join('')}</div></section>
+    ${wellbeingSection()}
     <section class="future-note"><p class="kicker">Следующий этап</p><h2>Контакты и мероприятия</h2><p>База знакомств, участников мероприятий и людей, которые перешли в бота.</p></section>
   </div>`
 }
@@ -202,9 +254,17 @@ function bindEvents() {
   document.querySelector('[data-prepare-response]')?.addEventListener('click', () => setState(setVacancyStatus(state,state.selectedVacancyId,'preparing')))
   document.querySelectorAll('[data-vacancy-action]').forEach((button) => button.addEventListener('click', () => setState(setVacancyStatus(state,state.selectedVacancyId,button.dataset.vacancyAction))))
   document.querySelectorAll('[data-energy]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, energy:Number(button.dataset.energy) } })))
+  document.querySelectorAll('[data-mood]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, mood:Number(button.dataset.mood) } })))
   document.querySelectorAll('[data-focus]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, focus:Number(button.dataset.focus) } })))
+  document.querySelectorAll('[data-anxiety]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, anxiety:Number(button.dataset.anxiety) } })))
+  document.querySelectorAll('[data-sleep-quality]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, sleepQuality:Number(button.dataset.sleepQuality) } })))
+  document.querySelectorAll('[data-sleep-hours]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, sleepHours:Number(button.dataset.sleepHours) } })))
   document.querySelectorAll('[data-distraction]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, distraction:button.dataset.distraction } })))
-  document.querySelector('[data-submit-checkin]')?.addEventListener('click', () => setState({ ...state, checkinResult:submitCheckin(state.checkin) }))
+  document.querySelectorAll('[data-wellbeing-period]').forEach((button) => button.addEventListener('click', () => setState({ ...state, wellbeingPeriod:Number(button.dataset.wellbeingPeriod) })))
+  document.querySelector('[data-submit-checkin]')?.addEventListener('click', () => {
+    const withEntry = addWellbeingEntry(state,state.checkin)
+    setState({ ...withEntry, checkinResult:submitCheckin(state.checkin) })
+  })
 }
 
 function render() {

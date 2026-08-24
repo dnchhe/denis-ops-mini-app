@@ -1,8 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  addWellbeingEntry,
+  calculateWellbeingStats,
   completeCurrentTask,
   createInitialState,
+  getCheckinType,
   getProfileStats,
   getScreenTitle,
   setCurrentTaskStatus,
@@ -58,4 +61,33 @@ test('weekly focus progress is based on completed milestones', () => {
   assert.equal(state.weeklyFocus.completed, 2)
   assert.equal(state.weeklyFocus.total, 5)
   assert.equal(state.weeklyFocus.progress, 40)
+})
+
+test('check-in type is derived from local hour', () => {
+  assert.equal(getCheckinType(8), 'morning')
+  assert.equal(getCheckinType(14), 'day')
+  assert.equal(getCheckinType(21), 'evening')
+})
+
+test('wellbeing statistics include averages and peak energy period', () => {
+  const entries = [
+    { type: 'morning', energy: 2, mood: 3, focus: 2, anxiety: 3, sleepHours: 6 },
+    { type: 'day', energy: 3, mood: 4, focus: 3, anxiety: 2, sleepHours: 6 },
+    { type: 'evening', energy: 5, mood: 4, focus: 4, anxiety: 1, sleepHours: 6 },
+    { type: 'evening', energy: 4, mood: 5, focus: 4, anxiety: 1, sleepHours: 7 },
+  ]
+  const stats = calculateWellbeingStats(entries)
+
+  assert.equal(stats.averageEnergy, 3.5)
+  assert.equal(stats.averageMood, 4)
+  assert.equal(stats.peakEnergyType, 'evening')
+})
+
+test('new wellbeing check-in is appended with its period', () => {
+  const state = createInitialState()
+  const next = addWellbeingEntry(state, { energy: 4, mood: 3, focus: 4, anxiety: 2 }, new Date('2026-08-24T14:00:00+03:00'))
+  const last = next.wellbeingHistory.at(-1)
+
+  assert.equal(last.type, 'day')
+  assert.equal(last.energy, 4)
 })
