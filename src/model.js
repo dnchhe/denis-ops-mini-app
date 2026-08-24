@@ -88,12 +88,36 @@ const vacancies = [
 ]
 
 export function createInitialState() {
+  const dayTasks = [
+    { id: 'task-0', title: 'Определить структуру ближайшей версии', project: 'Личная Mini App', priority: 0, status: 'done', estimate: '20 мин' },
+    { id: 'task-1', title: 'Проверить обновлённый прототип Mini App', project: 'Личная Mini App', priority: 1, status: 'ready', estimate: '15 мин' },
+    { id: 'task-2', title: 'Дать короткую обратную связь по интерфейсу', project: 'Личная Mini App', priority: 2, status: 'ready', estimate: '10 мин' },
+    { id: 'task-3', title: 'Проверить поступление оплаты', project: 'Деньги на зубах', priority: 3, status: 'ready', estimate: '5 мин' },
+  ]
   return {
     activeScreen: 'today',
-    currentTask: {
-      title: 'Проверить первый прототип Mini App',
-      project: 'Личная Mini App',
-      status: 'ready',
+    profileOpen: false,
+    currentTask: { ...dayTasks.find((task) => task.status !== 'done') },
+    dayTasks,
+    weeklyFocus: {
+      title: 'Собрать и проверить первую рабочую Mini App',
+      completed: 2,
+      total: 5,
+      progress: 40,
+      deadline: '30 августа',
+    },
+    calendarEvents: [
+      { day: 24, type: 'task', label: 'Прототип Mini App' },
+      { day: 25, type: 'task', label: 'Проверка интерфейса' },
+      { day: 27, type: 'payment', label: 'Остаток оплаты' },
+      { day: 28, type: 'deadline', label: 'Контроль проектов' },
+      { day: 30, type: 'focus', label: 'Фокус недели' },
+    ],
+    vacancySearch: {
+      schedule: ['12:00', '16:00', '20:00'],
+      weekdaysOnly: true,
+      lastRun: 'Ещё не запускался по расписанию',
+      status: 'scheduled',
     },
     projects: structuredClone(projects),
     vacancies: structuredClone(vacancies),
@@ -105,11 +129,38 @@ export function createInitialState() {
 }
 
 export function getScreenTitle(state) {
-  return { today: 'Сегодня', projects: 'Проекты', vacancies: 'Вакансии', checkin: 'Чек-ин' }[state.activeScreen]
+  return { today: 'Сегодня', calendar: 'Календарь', projects: 'Проекты', vacancies: 'Вакансии', checkin: 'Чек-ин' }[state.activeScreen]
 }
 
 export function setCurrentTaskStatus(state, status) {
-  return { ...state, currentTask: { ...state.currentTask, status } }
+  return {
+    ...state,
+    currentTask: { ...state.currentTask, status },
+    dayTasks: state.dayTasks.map((task) => task.id === state.currentTask.id ? { ...task, status } : task),
+  }
+}
+
+export function completeCurrentTask(state) {
+  const dayTasks = state.dayTasks.map((task) => task.id === state.currentTask.id ? { ...task, status: 'done' } : task)
+  const nextTask = [...dayTasks]
+    .filter((task) => task.status !== 'done')
+    .sort((a, b) => a.priority - b.priority)[0]
+  return {
+    ...state,
+    dayTasks,
+    currentTask: nextTask ? { ...nextTask } : { id: 'none', title: 'Все задачи на день выполнены', project: 'Сегодня', priority: 999, status: 'done', estimate: '–' },
+  }
+}
+
+export function getProfileStats(state) {
+  return {
+    activeProjects: state.projects.length,
+    riskyProjects: state.projects.filter((project) => project.risk && project.risk !== 'Нет').length,
+    totalVacancies: state.vacancies.length,
+    responsesPreparing: state.vacancies.filter((vacancy) => vacancy.status === 'preparing').length,
+    completedToday: state.dayTasks.filter((task) => task.status === 'done').length,
+    totalToday: state.dayTasks.length,
+  }
 }
 
 export function setVacancyStatus(state, vacancyId, status) {
