@@ -10,3 +10,5 @@ data/
 backups/
 *.sqlite3-shm
 *.sqlite3-wal
+__pycache__/
+*.pyc
