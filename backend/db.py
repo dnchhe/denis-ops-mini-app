@@ -224,6 +224,25 @@ class Database:
             db.execute("UPDATE vacancies SET payload=? WHERE id=?", (json.dumps(payload,ensure_ascii=False),vacancy_id))
         return payload
 
+    def update_vacancy(self, vacancy_id, patch):
+        clean = {key: str(patch[key])[:2000] for key in ("url","note") if key in patch}
+        if not clean:
+            raise ValueError("Nothing to update")
+        with self.connect() as db:
+            row = db.execute("SELECT payload FROM vacancies WHERE id=?", (vacancy_id,)).fetchone()
+            if not row:
+                raise KeyError(vacancy_id)
+            payload = json.loads(row["payload"])
+            payload.update(clean)
+            db.execute("UPDATE vacancies SET payload=? WHERE id=?", (json.dumps(payload,ensure_ascii=False),vacancy_id))
+        return payload
+
+    def delete_event_comment(self, comment_id):
+        with self.connect() as db:
+            cursor = db.execute("DELETE FROM calendar_comments WHERE id=?", (comment_id,))
+            if cursor.rowcount != 1:
+                raise KeyError(comment_id)
+
     def add_event_comment(self, event_id, text):
         normalized = str(text).strip()
         if not normalized:

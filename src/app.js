@@ -85,9 +85,13 @@ function setStatePreserveProfileScroll(next) {
   })
 }
 
-function header(kicker = '24 августа · понедельник') {
+function header(kicker) {
+  const moscow = new Date(new Date().toLocaleString('en-US', { timeZone:'Europe/Moscow' }))
+  const months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']
+  const weekdays = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота']
+  const label = kicker || `${moscow.getDate()} ${months[moscow.getMonth()]} · ${weekdays[moscow.getDay()]}`
   return `<header class="topbar">
-    <div><p class="kicker">${kicker}</p><h1>${getScreenTitle(state)}</h1></div>
+    <div><p class="kicker">${label}</p><h1>Сегодня</h1></div>
     <button class="profile-button" data-open-profile aria-label="Открыть статистику">Д</button>
   </header>`
 }
@@ -113,16 +117,32 @@ function currentTaskActions() {
   return `<div class="task-actions"><button class="primary-action" data-task-status="in-progress">Начать задачу</button><button data-task-status="postponed">Отложить</button></div>`
 }
 
+function focusTasks() {
+  const tasks = state.weeklyFocus.tasks || []
+  const completed = tasks.filter((task) => task.done).length
+  const total = tasks.length || state.weeklyFocus.total || 1
+  const progress = Math.round(completed / total * 100)
+  return { tasks, completed, total, progress }
+}
+
+function weeklyFocusSection() {
+  const focus = focusTasks()
+  const expanded = state.focusExpanded
+  return `<section class="weekly-focus">
+    <button class="focus-head" data-toggle-focus><div><p class="kicker">Фокус недели</p><h2>${state.weeklyFocus.title}</h2></div><div class="focus-side"><strong>${focus.progress}%</strong><i>${expanded ? '⌃' : '⌄'}</i></div></button>
+    <div class="progress-track"><span style="width:${focus.progress}%"></span></div>
+    <div class="focus-meta"><span>${focus.completed} из ${focus.total} задач</span><span>до ${state.weeklyFocus.deadline}</span></div>
+    ${expanded && focus.tasks.length ? `<div class="focus-tasks">${focus.tasks.map((task,index) => `<button class="task-row ${task.done ? 'done' : ''}" data-focus-task="${index}"><span class="task-check">${task.done ? '✓' : ''}</span><span><b>${task.text}</b></span></button>`).join('')}</div>` : ''}
+    ${expanded && !focus.tasks.length ? '<small class="focus-empty">Задачи фокуса появятся, когда разбиваем цель на шаги</small>' : ''}
+  </section>`
+}
+
 function todayView() {
   const completed = state.dayTasks.filter((task) => task.status === 'done').length
   return `${header()}
     ${weekStrip()}
 
-    <section class="weekly-focus">
-      <div class="section-line"><div><p class="kicker">Фокус недели</p><h2>${state.weeklyFocus.title}</h2></div><strong>${state.weeklyFocus.progress}%</strong></div>
-      <div class="progress-track"><span style="width:${state.weeklyFocus.progress}%"></span></div>
-      <div class="focus-meta"><span>${state.weeklyFocus.completed} из ${state.weeklyFocus.total} этапов</span><span>до ${state.weeklyFocus.deadline}</span></div>
-    </section>
+    ${weeklyFocusSection()}
 
     <section class="priority-task">
       <div class="task-label"><span class="live-dot"></span>${taskStatus[state.currentTask.status]}<small>${state.currentTask.estimate}</small></div>
@@ -147,35 +167,60 @@ function todayView() {
     </section>`
 }
 
-function currentWeekDays() {
-  const now = new Date()
-  const moscow = new Date(now.toLocaleString('en-US', { timeZone:'Europe/Moscow' }))
-  const dayOfWeek = (moscow.getDay() + 6) % 7
-  const monday = new Date(moscow)
-  monday.setDate(moscow.getDate() - dayOfWeek)
+function moscowToday() {
+  return new Date(new Date().toLocaleString('en-US', { timeZone:'Europe/Moscow' }))
+}
+
+function currentWeekDays(base = moscowToday()) {
+  const dayOfWeek = (base.getDay() + 6) % 7
+  const monday = new Date(base)
+  monday.setDate(base.getDate() - dayOfWeek)
   return Array.from({length:7},(_,offset) => {
     const date = new Date(monday)
     date.setDate(monday.getDate() + offset)
-    return { day: date.getDate(), isToday: date.toDateString() === moscow.toDateString() }
+    return { date, day: date.getDate(), month: date.getMonth(), isToday: date.toDateString() === moscowToday().toDateString(), inMonth: date.getMonth() === base.getMonth() }
   })
 }
 
+const monthNames = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
+
 function calendarView() {
+  const today = moscowToday()
+  const viewMonth = state.calendarMonth != null ? state.calendarMonth : today.getMonth()
+  const viewYear = state.calendarYear != null ? state.calendarYear : today.getFullYear()
   const eventsByDay = new Map(state.calendarEvents.map((event) => [event.day, event]))
-  const week = currentWeekDays()
-  const monthCollapsed = state.calendarCollapsed !== false ? true : false
-  return `${header('Август 2026')}
-    <section class="time-left"><div><p class="kicker">До конца недели</p><strong>${7 - ((new Date().getDay() + 6) % 7)} дн</strong></div><div class="week-meter"><span style="width:${Math.round(((new Date().getDay() + 6) % 7 + 1) / 7 * 100)}%"></span></div><small>Главная контрольная точка – 31 августа</small></section>
-    ${monthCollapsed ? `<div class="week-strip-card"><div class="section-line"><h2>Текущая неделя</h2><button class="text-button" data-toggle-month>Весь месяц</button></div>
-      <div class="week-days">${week.map(({day,isToday}) => `<div class="week-day ${isToday ? 'today' : ''} ${eventsByDay.has(day) ? 'has-event' : ''}"><span>${day}</span>${eventsByDay.get(day) ? '<i></i>' : ''}</div>`).join('')}</div></div>`
-    : `<div class="calendar-head"><button data-toggle-month>‹ Свернуть</button><h2>Август</h2><span></span></div>
+  const weekBase = new Date(viewYear, viewMonth, state.calendarCollapsed === false ? Math.min(today.getDate(), 28) : today.getDate())
+  if (state.calendarCollapsed !== false && (viewMonth !== today.getMonth() || viewYear !== today.getFullYear())) {
+    weekBase.setMonth(viewMonth, 1)
+  }
+  const week = currentWeekDays(weekBase)
+  const collapsed = state.calendarCollapsed !== false
+  const firstOfMonth = new Date(viewYear, viewMonth, 1)
+  const leadingBlanks = (firstOfMonth.getDay() + 6) % 7
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
+  const daysLeftInWeek = 7 - ((today.getDay() + 6) % 7 + 1) + 1
+  return `${header('Календарь')}
+    <section class="time-left"><div><p class="kicker">До конца недели</p><strong>${daysLeftInWeek} дн</strong></div><div class="week-meter"><span style="width:${Math.round((7 - daysLeftInWeek + 1) / 7 * 100)}%"></span></div><small>Главная контрольная точка – 31 августа</small></section>
+    ${collapsed ? `<div class="week-strip-card"><div class="section-line"><h2>Текущая неделя</h2><button class="text-button" data-toggle-month>Весь месяц</button></div>
+      <div class="week-days">${week.map(({day,isToday,hasEvent}) => `<div class="week-day ${isToday ? 'today' : ''}"><span>${day}</span>${eventsByDay.has(day) ? '<i></i>' : ''}</div>`).join('')}</div></div>`
+    : `<div class="calendar-head">
+        <button data-prev-month>‹</button>
+        <h2>${monthNames[viewMonth]} ${viewYear}</h2>
+        <div class="head-actions"><button data-toggle-month>Свернуть</button><button data-next-month>›</button></div>
+      </div>
     <div class="calendar-weekdays">${['ПН','ВТ','СР','ЧТ','ПТ','СБ','ВС'].map((day) => `<span>${day}</span>`).join('')}</div>
-    <div class="month-grid">${Array(4).fill('<span class="calendar-day empty"></span>').join('')}${Array.from({length:31},(_,i) => {
-      const day = i + 1; const event = eventsByDay.get(day)
-      return `<button class="calendar-day ${[24,25].includes(day) ? 'today' : ''} ${event ? 'has-event' : ''}"><span>${day}</span>${event ? `<i class="${event.type}"></i>` : ''}</button>`
+    <div class="month-grid">${Array(leadingBlanks).fill('<span class="calendar-day empty"></span>').join('')}${Array.from({length:daysInMonth},(_,i) => {
+      const day = i + 1
+      const isToday = day === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear()
+      const event = eventsByDay.get(day)
+      return `<button class="calendar-day ${isToday ? 'today' : ''} ${event ? 'has-event' : ''}"><span>${day}</span>${event ? `<i class="${event.type}"></i>` : ''}</button>`
     }).join('')}</div>`}
-    <section class="plain-section"><div class="section-line"><h2>Планы и дедлайны</h2><span class="section-count">${state.calendarEvents.length}</span></div>
-      <div class="calendar-agenda">${state.calendarEvents.map((event) => `<button class="agenda-row" data-event-id="${event.id}"><time><b>${event.day}</b><small>АВГ</small></time><span><b>${event.label}</b><small>${{task:'Задача',payment:'Оплата',deadline:'Дедлайн',focus:'Фокус недели'}[event.type]}${event.comments?.length ? ` · комментариев: ${event.comments.length}` : ''}</small></span><em class="${event.type}"></em></button>`).join('')}</div>
+    <section class="agenda-block plain-section">
+      <div class="section-line"><h2>Планы и дедлайны</h2>
+        <div class="agenda-filters">${[['all','Все'],['task','Задачи'],['payment','Оплаты'],['deadline','Дедлайны']].map(([key,label]) => `<button class="${(state.agendaFilter || 'all') === key ? 'active' : ''}" data-agenda-filter="${key}">${label}</button>`).join('')}</div>
+      </div>
+      <div class="calendar-agenda">${state.calendarEvents.filter((event) => (state.agendaFilter || 'all') === 'all' || event.type === state.agendaFilter).map((event) => `
+        <button class="agenda-row" data-event-id="${event.id}"><time><b>${event.day}</b><small>АВГ</small></time><span><b>${event.label}</b><small>${{task:'Задача',payment:'Оплата',deadline:'Дедлайн',focus:'Фокус недели'}[event.type]}${event.comments?.length ? ` · комментариев: ${event.comments.length}` : ''}</small></span><em class="${event.type}"></em></button>`).join('') || '<div class="subtle-note">Пусто</div>'}</div>
     </section>`
 }
 
@@ -240,27 +285,56 @@ function projectDetail(project) {
     <section class="data-section"><h2>Оплата</h2><div class="stats-inline"><div><small>Всего</small><b>${formatMoney(project.payment?.total)}</b></div><div><small>Оплачено</small><b>${formatMoney(project.payment?.paid)}</b></div><div><small>Остаток</small><b>${formatMoney((project.payment?.total||0) - (project.payment?.paid||0) || null)}</b></div></div></section>
     <section class="data-section"><div class="section-line"><h2>Дорожная карта</h2>${project.roadmap.length ? `<span>${project.roadmap.filter((step) => step.done).length}/${project.roadmap.length}</span>` : ''}</div>
       ${project.roadmap.length ? `<ol class="timeline clickable">${project.roadmap.map((step,index) => `<li class="${step.done ? 'done' : index === 0 && !project.roadmap.some((s) => !s.done) ? 'active' : ''}" data-roadmap-step="${index}"><span>${index + 1}</span><b>${step.text}</b></li>`).join('')}</ol>` : '<div class="text-box muted-box">Карта появится после согласования с клиентом</div>'}
-      <div class="stack-actions"><button data-add-item="task">+ Задание</button><button data-add-item="question">+ Вопрос клиенту</button></div>
+      <div class="stack-actions grid-2x2"><button data-add-item="task">+ Задание</button><button data-add-item="question">+ Вопрос клиенту</button><button data-edit-url>${project.url ? 'Ссылка' : '+ Ссылка'}</button><button class="danger-btn" data-delete-project>Удалить</button></div>
       ${project.items.length ? `<div class="items-list">${project.items.map((item,index) => `<button class="item-row ${item.done ? 'done' : ''}" data-item-index="${index}"><span>${item.done ? '✓' : '○'}</span><b>${item.text}</b><small>${item.kind === 'question' ? 'вопрос' : 'задание'}</small></button>`).join('')}</div>` : ''}
     </section>`
 }
 
+const vacancyFilters = [
+  ['all', 'Все'],
+  ['new', 'Новые'],
+  ['not-sent', 'Отклик не отправлен'],
+  ['sent', 'Отправлено'],
+]
+
 function vacanciesView() {
   if (state.selectedVacancyId) return vacancyDetail(state.vacancies.find((vacancy) => vacancy.id === state.selectedVacancyId))
   const paused = state.vacancySearch.status === 'paused'
+  const filter = state.vacancyFilter || 'all'
+  const filtered = state.vacancies.filter((vacancy) => {
+    if (filter === 'new') return vacancy.status === 'review'
+    if (filter === 'sent') return vacancy.status === 'sent'
+    if (filter === 'not-sent') return vacancy.status !== 'sent'
+    return true
+  })
   return `${header('Поиск по будням')}
     <section class="search-schedule compact ${state.searchExpanded ? 'expanded' : ''}">
       <button class="search-summary" data-toggle-search><span class="live-dot ${paused ? 'paused' : ''}"></span><b>${paused ? 'Автопоиск остановлен' : 'Автопоиск включён'}</b><i>${state.searchExpanded ? '⌃' : '⌄'}</i></button>
       ${state.searchExpanded ? `<div class="search-details"><p>Будни · ${state.vacancySearch.schedule.join(' · ')}</p><small>Новые совпадения отправляются в проверочный чат. Повторы пропускаются.</small><div class="search-actions">${paused ? `<button class="primary-action" data-search-pause="false">Включить поиск</button>` : `<button class="primary-action" data-search-now>${state.searchBusy ? 'Запускаю…' : 'Внеплановый поиск'}</button><button data-search-pause="true">Остановить поиск</button>`}</div></div>` : ''}
     </section>
-    <div class="section-line list-heading"><div><p class="kicker">Новые</p><h2>Подходящие вакансии</h2></div><span class="section-count">${state.vacancies.length}</span></div>
-    <div class="object-list">${state.vacancies.map((vacancy) => `<button class="object-row vacancy" data-vacancy-id="${vacancy.id}"><span class="match-score">${vacancy.match}</span><span class="object-copy"><small>${vacancy.company}</small><b>${vacancy.title}</b><em>${vacancy.format} · ${vacancy.salary}</em></span><span class="object-side"><small>${vacancyStatus[vacancy.status]}</small><i>›</i></span></button>`).join('')}</div>`
+    <div class="section-line list-heading">
+      <div><p class="kicker">${filtered.length} вакансий</p><h2>Подходящие</h2></div>
+      <button class="kebab" data-toggle-vacancy-menu aria-label="Действия">⋮</button>
+    </div>
+    ${state.vacancyMenuOpen ? `<div class="vacancy-menu">
+      ${['review','later','preparing','sent'].map((status) => `<div class="menu-row"><small>Перевести все в:</small><b>${vacancyStatus[status]}</b><button data-bulk-vacancy="${status}">ОК</button></div>`).join('')}
+      <small class="menu-hint">Меню раздела: массовые действия по статусам</small>
+    </div>` : ''}
+    <div class="segmented slim">${vacancyFilters.map(([key,label]) => `<button class="${filter === key ? 'active' : ''}" data-vacancy-filter="${key}">${label}</button>`).join('')}</div>
+    <div class="object-list">${filtered.map((vacancy) => `<button class="object-row vacancy" data-vacancy-id="${vacancy.id}"><span class="match-score">${vacancy.match}</span><span class="object-copy"><small>${vacancy.company}</small><b>${vacancy.title}</b><em>${vacancy.format} · ${vacancy.salary}</em></span><span class="object-side"><small>${vacancyStatus[vacancy.status]}</small><i>›</i></span></button>`).join('') || '<div class="subtle-note">Пусто</div>'}</div>`
 }
 
 function vacancyDetail(vacancy) {
-  return `<header class="detail-top"><button data-back-vacancies>‹</button><div><p class="kicker">${vacancy.company}</p><h1>${vacancy.title}</h1></div><button>•••</button></header>
+  const comments = vacancy.comments || []
+  return `<header class="detail-top"><button data-back-vacancies>‹</button><div><p class="kicker">${vacancy.company}</p><h1>${vacancy.title}</h1></div><a class="kebab" href="${vacancy.url && vacancy.url !== '#' ? vacancy.url : '#'}" target="_blank" rel="noopener" title="Открыть вакансию">↗</a></header>
     <section class="detail-summary"><div class="large-match"><b>${vacancy.match}</b><span>% соответствие</span></div><p>${vacancy.summary}</p><div class="tag-line"><span>${vacancy.format}</span><span>${vacancy.salary}</span></div></section>
-    <section class="data-section"><div class="section-line"><h2>Действие</h2><span class="status-pill muted" data-vacancy-status>${vacancyStatus[vacancy.status]}</span></div><div class="stack-actions"><button class="primary-action" data-prepare-response>Подготовить отклик</button><button data-vacancy-action="sent">Я отправил</button><button data-vacancy-action="later">Посмотреть позже</button></div></section>
+    <section class="data-section"><div class="section-line"><h2>Действие</h2><span class="status-pill muted" data-vacancy-status>${vacancyStatus[vacancy.status]}</span></div><div class="stack-actions"><button class="primary-action" data-prepare-response>${vacancy.status === 'preparing' ? 'Отклик готовится…' : 'Подготовить отклик'}</button><button data-vacancy-action="sent">Я отправил</button><button data-vacancy-action="later">Посмотреть позже</button></div>
+      ${!vacancy.url || vacancy.url === '#' ? '<button class="link-add" data-add-vacancy-url>+ Добавить ссылку на вакансию</button>' : `<a class="link-add" href="${vacancy.url}" target="_blank" rel="noopener">Открыть вакансию ↗</a>`}
+    </section>
+    <section class="data-section"><h2>Мои заметки</h2>
+      <textarea data-vacancy-comment maxlength="1000" placeholder="Что важно помнить про эту вакансию…">${(vacancy.note || '')}</textarea>
+      <button class="save-note" data-save-vacancy-note>Сохранить заметку</button>
+    </section>
     <section class="data-section"><h2>Отклик</h2><div class="text-box">${vacancy.response}</div></section>`
 }
 
@@ -368,7 +442,7 @@ function eventCommentSheet() {
   if (!state.selectedEventId) return ''
   const event = state.calendarEvents.find((item) => Number(item.id) === Number(state.selectedEventId))
   if (!event) return ''
-  return `<div class="modal-backdrop"><div class="comment-sheet"><button class="sheet-close" data-close-event>×</button><p class="kicker">${event.day} августа</p><h2>${event.label}</h2><div class="comment-list">${event.comments?.length ? event.comments.map((comment) => `<div><p>${comment.text}</p><small>${new Date(comment.createdAt).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</small></div>`).join('') : '<span>Комментариев пока нет</span>'}</div><label><span>Новый комментарий</span><textarea data-comment-input maxlength="2000" placeholder="Добавить уточнение, договорённость или заметку…">${state.eventCommentDraft}</textarea></label><button class="primary-action save-comment" data-save-comment ${state.eventCommentDraft.trim() ? '' : 'disabled'}>Сохранить</button></div></div>`
+  return `<div class="modal-backdrop"><div class="comment-sheet"><button class="sheet-close" data-close-event>×</button><p class="kicker">${event.day} августа</p><h2>${event.label}</h2><div class="comment-list">${event.comments?.length ? event.comments.map((comment) => `<div><p>${comment.text}</p><div class="comment-meta"><small>${new Date(comment.createdAt).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</small><button class="comment-delete" data-delete-comment="${comment.id}" title="Удалить">×</button></div></div>`).join('') : '<span>Комментариев пока нет</span>'}</div><label><span>Новый комментарий</span><textarea data-comment-input maxlength="2000" placeholder="Добавить уточнение, договорённость или заметку…">${state.eventCommentDraft}</textarea></label><button class="primary-action save-comment" data-save-comment ${state.eventCommentDraft.trim() ? '' : 'disabled'}>Сохранить</button></div></div>`
 }
 
 function confirmation() {
@@ -396,6 +470,36 @@ async function updateSelectedProject(patch) {
 
 function bindEvents() {
   document.querySelectorAll('[data-nav]').forEach((button) => button.addEventListener('click', () => setState({ ...state, activeScreen: button.dataset.nav, selectedProjectId: null, selectedVacancyId: null })))
+  document.querySelectorAll('[data-open-profile]').forEach((button) => button.addEventListener('click', () => setState({ ...state, profileOpen: true })))
+  document.querySelectorAll('[data-vacancy-filter]').forEach((button) => button.addEventListener('click', () => setState({ ...state, vacancyFilter:button.dataset.vacancyFilter })))
+  document.querySelector('[data-toggle-vacancy-menu]')?.addEventListener('click', () => setState({ ...state, vacancyMenuOpen:!state.vacancyMenuOpen }))
+  document.querySelectorAll('[data-bulk-vacancy]').forEach((button) => button.addEventListener('click', async (event) => {
+    event.stopPropagation()
+    const status = button.dataset.bulkVacancy
+    try {
+      for (const vacancy of state.vacancies) {
+        await apiRequest(`/api/vacancies/${vacancy.id}/status`, { method:'POST', body:JSON.stringify({ status }) })
+      }
+      const serverState = await apiRequest('/api/state')
+      setState({ ...mergeServerState(serverState), vacancyMenuOpen:false })
+    } catch (error) { console.warn('Bulk status was not applied',error) }
+  }))
+  document.querySelector('[data-add-vacancy-url]')?.addEventListener('click', async () => {
+    const url = window.prompt('Ссылка на вакансию:', '')
+    if (!url?.trim() || !state.selectedVacancyId) return
+    try {
+      const result = await apiRequest(`/api/vacancies/${state.selectedVacancyId}/details`, { method:'POST', body:JSON.stringify({ url:url.trim() }) })
+      setState(mergeServerState(result.state))
+    } catch (error) { console.warn('Vacancy URL was not saved',error) }
+  })
+  document.querySelector('[data-save-vacancy-note]')?.addEventListener('click', async () => {
+    const note = document.querySelector('[data-vacancy-comment]')?.value.trim()
+    if (note == null || !state.selectedVacancyId) return
+    try {
+      const result = await apiRequest(`/api/vacancies/${state.selectedVacancyId}/details`, { method:'POST', body:JSON.stringify({ note }) })
+      setState(mergeServerState(result.state))
+    } catch (error) { console.warn('Vacancy note was not saved',error) }
+  })
   document.querySelectorAll('[data-project-filter]').forEach((button) => button.addEventListener('click', () => setState({ ...state, projectFilter:button.dataset.projectFilter })))
   document.querySelectorAll('[data-project-sort]').forEach((button) => button.addEventListener('click', () => setState({ ...state, projectSort:button.dataset.projectSort })))
   document.querySelector('[data-create-project]')?.addEventListener('click', () => setState({ ...state, createFormOpen:true }))
@@ -415,6 +519,32 @@ function bindEvents() {
     } catch (error) { console.warn('Project was not created',error) }
   })
   document.querySelector('[data-toggle-month]')?.addEventListener('click', () => setState({ ...state, calendarCollapsed: state.calendarCollapsed === false ? true : false }))
+  document.querySelector('[data-prev-month]')?.addEventListener('click', () => {
+    const today = moscowToday()
+    let month = (state.calendarMonth != null ? state.calendarMonth : today.getMonth()) - 1
+    let year = state.calendarYear != null ? state.calendarYear : today.getFullYear()
+    if (month < 0) { month = 11; year -= 1 }
+    setState({ ...state, calendarMonth: month, calendarYear: year })
+  })
+  document.querySelector('[data-next-month]')?.addEventListener('click', () => {
+    const today = moscowToday()
+    let month = (state.calendarMonth != null ? state.calendarMonth : today.getMonth()) + 1
+    let year = state.calendarYear != null ? state.calendarYear : today.getFullYear()
+    if (month > 11) { month = 0; year += 1 }
+    setState({ ...state, calendarMonth: month, calendarYear: year })
+  })
+  document.querySelectorAll('[data-agenda-filter]').forEach((button) => button.addEventListener('click', () => setState({ ...state, agendaFilter:button.dataset.agendaFilter })))
+  document.querySelector('[data-toggle-focus]')?.addEventListener('click', () => setState({ ...state, focusExpanded:!state.focusExpanded }))
+  document.querySelectorAll('[data-focus-task]').forEach((row) => row.addEventListener('click', async () => {
+    const index = Number(row.dataset.focusTask)
+    const tasks = (state.weeklyFocus.tasks || []).map((task,i) => i === index ? { ...task, done:!task.done } : task)
+    const completed = tasks.filter((task) => task.done).length
+    const progress = Math.round(completed / (tasks.length || 1) * 100)
+    try {
+      await apiRequest('/api/settings/weekly_focus', { method:'POST', body:JSON.stringify({ ...state.weeklyFocus, tasks, completed, total:tasks.length, progress }) })
+      setState({ ...state, weeklyFocus: { ...state.weeklyFocus, tasks, completed, total:tasks.length, progress } })
+    } catch { setState({ ...state, weeklyFocus: { ...state.weeklyFocus, tasks, completed, total:tasks.length, progress } }) }
+  }))
   document.querySelector('[data-toggle-project-menu]')?.addEventListener('click', () => setState({ ...state, projectMenuOpen:!state.projectMenuOpen }))
   document.querySelectorAll('[data-set-status]').forEach((button) => button.addEventListener('click', () => updateSelectedProject({ status:button.dataset.setStatus })))
   document.querySelectorAll('[data-roadmap-step]').forEach((stepElement) => stepElement.addEventListener('click', async () => {
@@ -453,6 +583,13 @@ function bindEvents() {
   document.querySelector('[data-close-profile]')?.addEventListener('click', () => setState({ ...state, profileOpen: false }))
   document.querySelectorAll('[data-event-id]').forEach((button) => button.addEventListener('click', () => setState({ ...state, selectedEventId:Number(button.dataset.eventId), eventCommentDraft:'' })))
   document.querySelector('[data-close-event]')?.addEventListener('click', () => setState({ ...state, selectedEventId:null, eventCommentDraft:'' }))
+  document.querySelectorAll('[data-delete-comment]').forEach((button) => button.addEventListener('click', async (event) => {
+    event.stopPropagation()
+    try {
+      const result = await apiRequest(`/api/comments/${button.dataset.deleteComment}`, { method:'POST', body:'{}' })
+      setState(mergeServerState(result.state))
+    } catch (error) { console.warn('Comment was not deleted',error) }
+  }))
   document.querySelector('[data-comment-input]')?.addEventListener('input', (event) => {
     state.eventCommentDraft = event.target.value
     const save = document.querySelector('[data-save-comment]')
