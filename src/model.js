@@ -122,6 +122,10 @@ export function getCheckinType(hour) {
   return 'evening'
 }
 
+export function hasSleepEntryForDate(entries, date) {
+  return entries.some((entry) => !Boolean(entry.demo) && typeof entry.sleepHours === 'number' && String(entry.timestamp).slice(0,10) === date)
+}
+
 function roundedAverage(entries, field) {
   const values = entries.map((entry) => entry[field]).filter((value) => typeof value === 'number')
   if (!values.length) return null
@@ -178,11 +182,11 @@ export function createInitialState() {
       deadline: '30 августа',
     },
     calendarEvents: [
-      { day: 24, type: 'task', label: 'Прототип Mini App' },
-      { day: 25, type: 'task', label: 'Проверка интерфейса' },
-      { day: 27, type: 'payment', label: 'Остаток оплаты' },
-      { day: 28, type: 'deadline', label: 'Контроль проектов' },
-      { day: 30, type: 'focus', label: 'Фокус недели' },
+      { id: 1, day: 24, type: 'task', label: 'Прототип Mini App', comments: [] },
+      { id: 2, day: 25, type: 'task', label: 'Проверка интерфейса', comments: [] },
+      { id: 3, day: 27, type: 'payment', label: 'Остаток оплаты', comments: [] },
+      { id: 4, day: 28, type: 'deadline', label: 'Контроль проектов', comments: [] },
+      { id: 5, day: 30, type: 'focus', label: 'Фокус недели', comments: [] },
     ],
     vacancySearch: {
       schedule: ['12:00', '16:00', '20:00'],

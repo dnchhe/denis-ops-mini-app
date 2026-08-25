@@ -53,6 +53,19 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(after["sampleSize"], before + 1)
         self.assertEqual(after["peakEnergyType"], "evening")
 
+    def test_calendar_comment_is_persisted_in_event_state(self):
+        event = self.db.get_state()["calendarEvents"][0]
+        self.db.add_event_comment(event["id"], "Уточнить время с клиентом")
+        updated = next(item for item in self.db.get_state()["calendarEvents"] if item["id"] == event["id"])
+
+        self.assertEqual(updated["comments"][-1]["text"], "Уточнить время с клиентом")
+
+    def test_vacancy_search_can_be_paused_and_resumed(self):
+        self.db.set_vacancy_search_paused(True)
+        self.assertEqual(self.db.get_state()["vacancySearch"]["status"], "paused")
+        self.db.set_vacancy_search_paused(False)
+        self.assertEqual(self.db.get_state()["vacancySearch"]["status"], "scheduled")
+
 
 class TelegramAuthTests(unittest.TestCase):
     def test_valid_init_data_is_accepted(self):

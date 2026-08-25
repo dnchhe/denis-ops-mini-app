@@ -5,13 +5,14 @@ import {
   createInitialState,
   getCheckinType,
   getProfileStats,
+  hasSleepEntryForDate,
   getScreenTitle,
   setCurrentTaskStatus,
   setVacancyStatus,
   submitCheckin,
 } from './model.js'
 
-let state = { ...createInitialState(), confirmCompletion: false, serverConnected: false }
+let state = { ...createInitialState(), confirmCompletion: false, serverConnected: false, searchExpanded: false, selectedEventId: null, eventCommentDraft: '', searchBusy: false }
 const app = document.querySelector('#app')
 const telegram = window.Telegram?.WebApp
 telegram?.ready()
@@ -53,10 +54,10 @@ async function loadServerState() {
 
 const navItems = [
   ['today', '⌂', 'Сегодня'],
-  ['calendar', '□', 'Календарь'],
   ['projects', '▤', 'Проекты'],
   ['vacancies', '◇', 'Вакансии'],
   ['checkin', '○', 'Чек-ин'],
+  ['calendar', '□', 'Календарь'],
 ]
 
 const projectStatus = {
@@ -68,6 +69,16 @@ const vacancyStatus = { review: 'На рассмотрении', later: 'Пос�
 const taskStatus = { ready: 'Следующая по приоритету', 'in-progress': 'Сейчас в работе', postponed: 'На паузе', blocked: 'Есть препятствие', done: 'Завершено' }
 
 function setState(next) { state = next; render() }
+
+function setStatePreserveProfileScroll(next) {
+  const scrollTop = document.querySelector('.profile-overlay')?.scrollTop || 0
+  state = next
+  render()
+  requestAnimationFrame(() => {
+    const overlay = document.querySelector('.profile-overlay')
+    if (overlay) overlay.scrollTop = scrollTop
+  })
+}
 
 function header(kicker = '24 августа · понедельник') {
   return `<header class="topbar">
@@ -143,7 +154,7 @@ function calendarView() {
     }).join('')}</div>
     <section class="time-left"><div><p class="kicker">До конца недели</p><strong>6 дней</strong></div><div class="week-meter"><span style="width:14%"></span></div><small>Главная контрольная точка – 30 августа</small></section>
     <section class="plain-section"><div class="section-line"><h2>Планы и дедлайны</h2><span class="section-count">${state.calendarEvents.length}</span></div>
-      <div class="calendar-agenda">${state.calendarEvents.map((event) => `<button class="agenda-row"><time><b>${event.day}</b><small>АВГ</small></time><span><b>${event.label}</b><small>${{task:'Задача',payment:'Оплата',deadline:'Дедлайн',focus:'Фокус недели'}[event.type]}</small></span><em class="${event.type}"></em></button>`).join('')}</div>
+      <div class="calendar-agenda">${state.calendarEvents.map((event) => `<button class="agenda-row" data-event-id="${event.id}"><time><b>${event.day}</b><small>АВГ</small></time><span><b>${event.label}</b><small>${{task:'Задача',payment:'Оплата',deadline:'Дедлайн',focus:'Фокус недели'}[event.type]}${event.comments?.length ? ` · комментариев: ${event.comments.length}` : ''}</small></span><em class="${event.type}"></em></button>`).join('')}</div>
     </section>`
 }
 
@@ -170,8 +181,12 @@ function projectDetail(project) {
 
 function vacanciesView() {
   if (state.selectedVacancyId) return vacancyDetail(state.vacancies.find((vacancy) => vacancy.id === state.selectedVacancyId))
+  const paused = state.vacancySearch.status === 'paused'
   return `${header('Поиск по будням')}
-    <section class="search-schedule"><div><span class="live-dot"></span><b>Автопоиск включён</b><small>Следующий запуск – 12:00</small></div><div class="schedule-times">${state.vacancySearch.schedule.map((time) => `<span>${time}</span>`).join('')}</div></section>
+    <section class="search-schedule compact ${state.searchExpanded ? 'expanded' : ''}">
+      <button class="search-summary" data-toggle-search><span class="live-dot ${paused ? 'paused' : ''}"></span><b>${paused ? 'Автопоиск остановлен' : 'Автопоиск включён'}</b><i>${state.searchExpanded ? '⌃' : '⌄'}</i></button>
+      ${state.searchExpanded ? `<div class="search-details"><p>Будни · ${state.vacancySearch.schedule.join(' · ')}</p><small>Новые совпадения отправляются в проверочный чат. Повторы пропускаются.</small><div class="search-actions">${paused ? `<button class="primary-action" data-search-pause="false">Включить поиск</button>` : `<button class="primary-action" data-search-now>${state.searchBusy ? 'Запускаю…' : 'Внеплановый поиск'}</button><button data-search-pause="true">Остановить поиск</button>`}</div></div>` : ''}
+    </section>
     <div class="section-line list-heading"><div><p class="kicker">Новые</p><h2>Подходящие вакансии</h2></div><span class="section-count">${state.vacancies.length}</span></div>
     <div class="object-list">${state.vacancies.map((vacancy) => `<button class="object-row vacancy" data-vacancy-id="${vacancy.id}"><span class="match-score">${vacancy.match}</span><span class="object-copy"><small>${vacancy.company}</small><b>${vacancy.title}</b><em>${vacancy.format} · ${vacancy.salary}</em></span><span class="object-side"><small>${vacancyStatus[vacancy.status]}</small><i>›</i></span></button>`).join('')}</div>`
 }
@@ -196,14 +211,22 @@ function metricQuestion(kicker, title, type, value) {
   return `<div class="check-question"><p class="kicker">${kicker}</p><h2>${title}</h2>${scaleButtons(type,value)}</div>`
 }
 
+function moscowDateString() {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone:'Europe/Moscow', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(new Date())
+  const values = Object.fromEntries(parts.map((part) => [part.type,part.value]))
+  return `${values.year}-${values.month}-${values.day}`
+}
+
 function checkinView() {
   const type = currentCheckinType()
-  const meta = {
+  const sleepAlreadyRecorded = hasSleepEntryForDate(state.wellbeingHistory,moscowDateString())
+  const defaultMeta = {
     morning: ['Утренний чек-ин','Как начался день'],
     day: ['Дневной чек-ин','Как проходит рабочий день'],
     evening: ['Вечерний чек-ин','Как завершился день'],
   }[type]
-  const sleep = type === 'morning' ? `<div class="check-question"><p class="kicker">Сон</p><h2>Сколько часов спал?</h2><div class="choice-chips hours">${[5,6,7,8,9].map((hours) => `<button class="${state.checkin.sleepHours === hours ? 'selected' : ''}" data-sleep-hours="${hours}">${hours} ч</button>`).join('')}</div></div>${metricQuestion('Качество сна','Насколько восстановился?','sleepQuality',state.checkin.sleepQuality)}` : ''
+  const meta = type === 'morning' && sleepAlreadyRecorded ? ['Состояние сейчас','Как ты себя чувствуешь сейчас'] : defaultMeta
+  const sleep = type === 'morning' && !sleepAlreadyRecorded ? `<div class="check-question"><p class="kicker">Сон</p><h2>Сколько часов спал?</h2><div class="sleep-grid">${Array.from({length:12},(_,hours) => `<button class="${state.checkin.sleepHours === hours ? 'selected' : ''}" data-sleep-hours="${hours}">${hours}</button>`).join('')}</div></div>${metricQuestion('Качество сна','Насколько восстановился?','sleep-quality',state.checkin.sleepQuality)}` : ''
   return `${header(meta[0])}
     <div class="checkin-intro"><span>${{morning:'☼',day:'◐',evening:'◒'}[type]}</span><div><p class="kicker">${meta[0]}</p><h2>${meta[1]}</h2><small>Время сохранится автоматически</small></div></div>
     <section class="checkin-sheet"><div class="checkin-status"><span style="width:${state.checkin.energy && state.checkin.mood ? '68%' : state.checkin.energy ? '35%' : '10%'}"></span></div>
@@ -258,6 +281,13 @@ function profileOverlay() {
   </div>`
 }
 
+function eventCommentSheet() {
+  if (!state.selectedEventId) return ''
+  const event = state.calendarEvents.find((item) => Number(item.id) === Number(state.selectedEventId))
+  if (!event) return ''
+  return `<div class="modal-backdrop"><div class="comment-sheet"><button class="sheet-close" data-close-event>×</button><p class="kicker">${event.day} августа</p><h2>${event.label}</h2><div class="comment-list">${event.comments?.length ? event.comments.map((comment) => `<div><p>${comment.text}</p><small>${new Date(comment.createdAt).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</small></div>`).join('') : '<span>Комментариев пока нет</span>'}</div><label><span>Новый комментарий</span><textarea data-comment-input maxlength="2000" placeholder="Добавить уточнение, договорённость или заметку…">${state.eventCommentDraft}</textarea></label><button class="primary-action save-comment" data-save-comment ${state.eventCommentDraft.trim() ? '' : 'disabled'}>Сохранить</button></div></div>`
+}
+
 function confirmation() {
   if (!state.confirmCompletion) return ''
   return `<div class="modal-backdrop"><div class="confirm-modal"><span class="confirm-icon">✓</span><h2>Задача завершена?</h2><p>${state.currentTask.title}</p><button class="primary-action" data-confirm-completion>Да, показать следующую</button><button data-cancel-completion>Вернуться</button></div></div>`
@@ -272,6 +302,38 @@ function bindEvents() {
   document.querySelectorAll('[data-nav]').forEach((button) => button.addEventListener('click', () => setState({ ...state, activeScreen: button.dataset.nav, selectedProjectId: null, selectedVacancyId: null })))
   document.querySelectorAll('[data-open-profile]').forEach((button) => button.addEventListener('click', () => setState({ ...state, profileOpen: true })))
   document.querySelector('[data-close-profile]')?.addEventListener('click', () => setState({ ...state, profileOpen: false }))
+  document.querySelectorAll('[data-event-id]').forEach((button) => button.addEventListener('click', () => setState({ ...state, selectedEventId:Number(button.dataset.eventId), eventCommentDraft:'' })))
+  document.querySelector('[data-close-event]')?.addEventListener('click', () => setState({ ...state, selectedEventId:null, eventCommentDraft:'' }))
+  document.querySelector('[data-comment-input]')?.addEventListener('input', (event) => {
+    state.eventCommentDraft = event.target.value
+    const save = document.querySelector('[data-save-comment]')
+    if (save) save.disabled = !state.eventCommentDraft.trim()
+  })
+  document.querySelector('[data-save-comment]')?.addEventListener('click', async () => {
+    const eventId = state.selectedEventId
+    const text = state.eventCommentDraft.trim()
+    if (!text) return
+    try {
+      const result = await apiRequest(`/api/calendar/${eventId}/comments`, { method:'POST', body:JSON.stringify({ text }) })
+      setState({ ...mergeServerState(result.state), selectedEventId:eventId, eventCommentDraft:'' })
+    } catch (error) { console.warn('Comment was not saved',error) }
+  })
+  document.querySelector('[data-toggle-search]')?.addEventListener('click', () => setState({ ...state, searchExpanded:!state.searchExpanded }))
+  document.querySelector('[data-search-now]')?.addEventListener('click', async () => {
+    if (state.searchBusy) return
+    setState({ ...state, searchBusy:true, searchExpanded:true })
+    try {
+      await apiRequest('/api/vacancy-search/run', { method:'POST', body:'{}' })
+    } catch (error) { console.warn('Unplanned search was not started',error) }
+    setState({ ...state, searchBusy:false, searchExpanded:true })
+  })
+  document.querySelector('[data-search-pause]')?.addEventListener('click', async (event) => {
+    const paused = event.currentTarget.dataset.searchPause === 'true'
+    try {
+      const result = await apiRequest('/api/vacancy-search/pause', { method:'POST', body:JSON.stringify({ paused }) })
+      setState({ ...mergeServerState(result.state), searchExpanded:true })
+    } catch (error) { console.warn('Search schedule was not changed',error) }
+  })
   document.querySelectorAll('[data-task-status]').forEach((button) => button.addEventListener('click', async () => {
     const nextStatus = button.dataset.taskStatus
     const taskId = state.currentTask.id
@@ -327,7 +389,7 @@ function bindEvents() {
   document.querySelectorAll('[data-sleep-quality]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, sleepQuality:Number(button.dataset.sleepQuality) } })))
   document.querySelectorAll('[data-sleep-hours]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, sleepHours:Number(button.dataset.sleepHours) } })))
   document.querySelectorAll('[data-distraction]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, distraction:button.dataset.distraction } })))
-  document.querySelectorAll('[data-wellbeing-period]').forEach((button) => button.addEventListener('click', () => setState({ ...state, wellbeingPeriod:Number(button.dataset.wellbeingPeriod) })))
+  document.querySelectorAll('[data-wellbeing-period]').forEach((button) => button.addEventListener('click', () => setStatePreserveProfileScroll({ ...state, wellbeingPeriod:Number(button.dataset.wellbeingPeriod) })))
   document.querySelector('[data-submit-checkin]')?.addEventListener('click', async () => {
     const localResult = submitCheckin(state.checkin)
     const localState = addWellbeingEntry(state,state.checkin)
@@ -342,7 +404,7 @@ function bindEvents() {
 function render() {
   const views = { today:todayView, calendar:calendarView, projects:projectsView, vacancies:vacanciesView, checkin:checkinView }
   const content = views[state.activeScreen]()
-  app.innerHTML = `<div class="app-shell"><main>${content}</main>${bottomNav()}${profileOverlay()}${confirmation()}</div>`
+  app.innerHTML = `<div class="app-shell"><main>${content}</main>${bottomNav()}${profileOverlay()}${confirmation()}${eventCommentSheet()}</div>`
   bindEvents()
 }
 

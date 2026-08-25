@@ -7,6 +7,7 @@ import {
   createInitialState,
   getCheckinType,
   getProfileStats,
+  hasSleepEntryForDate,
   getScreenTitle,
   setCurrentTaskStatus,
   setVacancyStatus,
@@ -90,4 +91,13 @@ test('new wellbeing check-in is appended with its period', () => {
 
   assert.equal(last.type, 'day')
   assert.equal(last.energy, 4)
+})
+
+test('sleep questions are hidden after one real sleep entry for the day', () => {
+  const entries = [
+    { timestamp: '2026-08-25T07:13:00+03:00', sleepHours: 9, demo: 0 },
+    { timestamp: '2026-08-24T08:00:00+03:00', sleepHours: 7, demo: 0 },
+  ]
+  assert.equal(hasSleepEntryForDate(entries, '2026-08-25'), true)
+  assert.equal(hasSleepEntryForDate(entries, '2026-08-26'), false)
 })

@@ -2,6 +2,7 @@ import json
 import mimetypes
 import os
 import re
+import subprocess
 from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -99,6 +100,7 @@ class Handler(BaseHTTPRequestHandler):
             status_match = re.fullmatch(r"/api/tasks/([^/]+)/status", parsed.path)
             complete_match = re.fullmatch(r"/api/tasks/([^/]+)/complete", parsed.path)
             vacancy_match = re.fullmatch(r"/api/vacancies/([^/]+)/status", parsed.path)
+            comment_match = re.fullmatch(r"/api/calendar/(\d+)/comments", parsed.path)
             if status_match:
                 DB.set_task_status(status_match.group(1), payload["status"])
                 return self._send_json(DB.get_state())
@@ -108,6 +110,26 @@ class Handler(BaseHTTPRequestHandler):
             if vacancy_match:
                 vacancy = DB.set_vacancy_status(vacancy_match.group(1), payload["status"])
                 return self._send_json({"vacancy": vacancy, "state": DB.get_state()})
+            if comment_match:
+                comment = DB.add_event_comment(int(comment_match.group(1)), payload.get("text", ""))
+                return self._send_json({"comment": comment, "state": DB.get_state()}, HTTPStatus.CREATED)
+            if parsed.path == "/api/vacancy-search/pause":
+                status = DB.set_vacancy_search_paused(bool(payload.get("paused")))
+                return self._send_json({"status": status, "state": DB.get_state()})
+            if parsed.path == "/api/vacancy-search/run":
+                lock = DB.path.parent / "vacancy_search.lock"
+                if lock.exists():
+                    return self._send_json({"error": "already_running"}, HTTPStatus.CONFLICT)
+                log_path = DB.path.parent / "vacancy_search_manual.log"
+                log_handle = log_path.open("ab")
+                subprocess.Popen(
+                    [str(Path.home() / ".hermes" / "scripts" / "vacancy_search_scheduled.sh")],
+                    stdout=log_handle,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+                log_handle.close()
+                return self._send_json({"status": "started"}, HTTPStatus.ACCEPTED)
             if parsed.path == "/api/checkins":
                 now = datetime.now(ZoneInfo("Europe/Moscow"))
                 payload.setdefault("timestamp", now.isoformat())

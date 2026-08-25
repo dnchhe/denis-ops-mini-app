@@ -64,6 +64,7 @@ class Database:
     def __init__(self, path: Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.vacancy_pause_flag = self.path.parent / "vacancy_search_paused"
 
     def connect(self):
         connection = sqlite3.connect(self.path)
@@ -79,6 +80,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY,payload TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS vacancies(id TEXT PRIMARY KEY,payload TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS calendar_events(id INTEGER PRIMARY KEY AUTOINCREMENT,day INTEGER NOT NULL,type TEXT NOT NULL,label TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS calendar_comments(id INTEGER PRIMARY KEY AUTOINCREMENT,event_id INTEGER NOT NULL,text TEXT NOT NULL,created_at TEXT NOT NULL,FOREIGN KEY(event_id) REFERENCES calendar_events(id) ON DELETE CASCADE);
                 CREATE TABLE IF NOT EXISTS checkins(id INTEGER PRIMARY KEY AUTOINCREMENT,timestamp TEXT NOT NULL,type TEXT NOT NULL,energy REAL,mood REAL,focus REAL,anxiety REAL,sleep_hours REAL,sleep_quality REAL,distraction TEXT,demo INTEGER NOT NULL DEFAULT 0);
                 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
             """)
@@ -113,10 +115,13 @@ class Database:
             current = next((task for task in tasks if task["status"] != "done"), {"id":"none","title":"Все задачи на день выполнены","project":"Сегодня","priority":999,"status":"done","estimate":"–"})
             projects = [json.loads(row["payload"]) for row in db.execute("SELECT payload FROM projects ORDER BY rowid")]
             vacancies = [json.loads(row["payload"]) for row in db.execute("SELECT payload FROM vacancies ORDER BY rowid")]
-            events = [dict(row) for row in db.execute("SELECT day,type,label FROM calendar_events ORDER BY day")]
+            events = [dict(row) for row in db.execute("SELECT id,day,type,label FROM calendar_events ORDER BY day")]
+            for event in events:
+                event["comments"] = [dict(row) for row in db.execute("SELECT id,text,created_at AS createdAt FROM calendar_comments WHERE event_id=? ORDER BY id", (event["id"],))]
             focus = json.loads(db.execute("SELECT value FROM settings WHERE key='weekly_focus'").fetchone()["value"])
             history = [dict(row) for row in db.execute("SELECT timestamp,type,energy,mood,focus,anxiety,sleep_hours AS sleepHours,sleep_quality AS sleepQuality,distraction,demo FROM checkins ORDER BY timestamp")]
-        return {"currentTask":current,"dayTasks":tasks,"weeklyFocus":focus,"calendarEvents":events,"projects":projects,"vacancies":vacancies,"wellbeingHistory":history,"vacancySearch":{"schedule":["12:00","16:00","20:00"],"weekdaysOnly":True,"lastRun":"Расписание подключено","status":"scheduled"}}
+        vacancy_status = "paused" if self.vacancy_pause_flag.exists() else "scheduled"
+        return {"currentTask":current,"dayTasks":tasks,"weeklyFocus":focus,"calendarEvents":events,"projects":projects,"vacancies":vacancies,"wellbeingHistory":history,"vacancySearch":{"schedule":["12:00","16:00","20:00"],"weekdaysOnly":True,"lastRun":"Расписание подключено","status":vacancy_status}}
 
     def set_task_status(self, task_id, status):
         if status not in {"ready","in-progress","postponed","blocked","done"}:
@@ -138,6 +143,26 @@ class Database:
             payload = json.loads(row["payload"]); payload["status"] = status
             db.execute("UPDATE vacancies SET payload=? WHERE id=?", (json.dumps(payload,ensure_ascii=False),vacancy_id))
         return payload
+
+    def add_event_comment(self, event_id, text):
+        normalized = str(text).strip()
+        if not normalized:
+            raise ValueError("Comment cannot be empty")
+        if len(normalized) > 2000:
+            raise ValueError("Comment is too long")
+        with self.connect() as db:
+            if not db.execute("SELECT 1 FROM calendar_events WHERE id=?", (event_id,)).fetchone():
+                raise KeyError(event_id)
+            cursor = db.execute("INSERT INTO calendar_comments(event_id,text,created_at) VALUES(?,?,?)", (event_id, normalized, datetime.now().astimezone().isoformat()))
+            comment_id = cursor.lastrowid
+        return {"id": comment_id, "text": normalized}
+
+    def set_vacancy_search_paused(self, paused):
+        if paused:
+            self.vacancy_pause_flag.write_text("paused\n")
+        else:
+            self.vacancy_pause_flag.unlink(missing_ok=True)
+        return "paused" if paused else "scheduled"
 
     def add_checkin(self, payload):
         with self.connect() as db:
