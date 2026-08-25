@@ -50,7 +50,9 @@ class DatabaseTests(unittest.TestCase):
         })
         after = self.db.get_wellbeing_stats(7)
 
-        self.assertEqual(after["sampleSize"], before + 1)
+        self.assertGreater(before, 0)
+        self.assertEqual(after["sampleSize"], 1)
+        self.assertEqual(after["averageEnergy"], 5.0)
         self.assertEqual(after["peakEnergyType"], "evening")
 
     def test_project_crud_persists(self):
@@ -76,6 +78,28 @@ class DatabaseTests(unittest.TestCase):
         updated = next(item for item in self.db.get_state()["calendarEvents"] if item["id"] == event["id"])
 
         self.assertEqual(updated["comments"][-1]["text"], "Уточнить время с клиентом")
+
+
+    def test_task_edit_comment_focus_and_delete(self):
+        created = self.db.create_task({"title": "Новая задача", "project": "Личная Mini App", "focus": True})
+        updated = self.db.update_task(created["id"], {"notes": "Проверить с телефона", "status": "done"})
+        self.assertEqual(updated["notes"], "Проверить с телефона")
+        self.assertTrue(updated["focus"])
+        self.assertEqual(updated["status"], "done")
+        self.db.delete_task(created["id"])
+        self.assertNotIn(created["id"], [task["id"] for task in self.db.get_state()["dayTasks"]])
+
+    def test_roadmap_and_project_items_can_be_updated_without_other_fields(self):
+        project_id = self.db.get_state()["projects"][0]["id"]
+        updated = self.db.update_project(project_id, {"roadmap": [{"text": "Этап 1", "done": True}], "items": [{"kind": "comment", "text": "Важно", "done": False}]})
+        self.assertEqual(updated["roadmap"][0]["text"], "Этап 1")
+        self.assertEqual(updated["items"][0]["kind"], "comment")
+
+    def test_vacancy_response_is_generated(self):
+        vacancy_id = self.db.get_state()["vacancies"][0]["id"]
+        vacancy = self.db.prepare_vacancy_response(vacancy_id)
+        self.assertEqual(vacancy["status"], "preparing")
+        self.assertIn("Здравствуйте", vacancy["response"])
 
     def test_vacancy_search_can_be_paused_and_resumed(self):
         self.db.set_vacancy_search_paused(True)

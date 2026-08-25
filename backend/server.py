@@ -99,8 +99,10 @@ class Handler(BaseHTTPRequestHandler):
             payload = self._read_json()
             status_match = re.fullmatch(r"/api/tasks/([^/]+)/status", parsed.path)
             complete_match = re.fullmatch(r"/api/tasks/([^/]+)/complete", parsed.path)
+            task_match = re.fullmatch(r"/api/tasks/([^/]+)", parsed.path)
             vacancy_match = re.fullmatch(r"/api/vacancies/([^/]+)/status", parsed.path)
             vacancy_update_match = re.fullmatch(r"/api/vacancies/([^/]+)/details", parsed.path)
+            vacancy_prepare_match = re.fullmatch(r"/api/vacancies/([^/]+)/prepare", parsed.path)
             comment_delete_match = re.fullmatch(r"/api/comments/(\d+)", parsed.path)
             comment_match = re.fullmatch(r"/api/calendar/(\d+)/comments", parsed.path)
             project_match = re.fullmatch(r"/api/projects/([^/]+)", parsed.path)
@@ -110,8 +112,20 @@ class Handler(BaseHTTPRequestHandler):
             if complete_match:
                 result = DB.complete_task(complete_match.group(1))
                 return self._send_json({**result, "state": DB.get_state()})
+            if task_match:
+                if payload.get("delete"):
+                    DB.delete_task(task_match.group(1))
+                    return self._send_json({"state": DB.get_state()})
+                task = DB.update_task(task_match.group(1), payload)
+                return self._send_json({"task": task, "state": DB.get_state()})
+            if parsed.path == "/api/tasks":
+                task = DB.create_task(payload)
+                return self._send_json({"task": task, "state": DB.get_state()}, HTTPStatus.CREATED)
             if vacancy_match:
                 vacancy = DB.set_vacancy_status(vacancy_match.group(1), payload["status"])
+                return self._send_json({"vacancy": vacancy, "state": DB.get_state()})
+            if vacancy_prepare_match:
+                vacancy = DB.prepare_vacancy_response(vacancy_prepare_match.group(1))
                 return self._send_json({"vacancy": vacancy, "state": DB.get_state()})
             if vacancy_update_match:
                 vacancy = DB.update_vacancy(vacancy_update_match.group(1), payload)
@@ -120,17 +134,7 @@ class Handler(BaseHTTPRequestHandler):
                 DB.delete_event_comment(int(comment_delete_match.group(1)))
                 return self._send_json({"state": DB.get_state()})
             if parsed.path == "/api/settings/weekly_focus":
-                focus = {
-                    "title": str(payload.get("title", ""))[:200],
-                    "deadline": str(payload.get("deadline", ""))[:50],
-                    "completed": int(payload.get("completed", 0)),
-                    "total": max(1, int(payload.get("total", 1))),
-                    "progress": min(100, max(0, int(payload.get("progress", 0)))),
-                    "tasks": [{"text": str(task.get("text", ""))[:300], "done": bool(task.get("done"))} for task in payload.get("tasks", []) if isinstance(task, dict)][:20],
-                }
-                with DB.connect() as db:
-                    db.execute("INSERT INTO settings(key,value) VALUES('weekly_focus',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                        (json.dumps(focus, ensure_ascii=False),))
+                focus = DB.set_weekly_focus(payload)
                 return self._send_json({"focus": focus, "state": DB.get_state()})
             if comment_match:
                 comment = DB.add_event_comment(int(comment_match.group(1)), payload.get("text", ""))

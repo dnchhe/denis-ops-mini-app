@@ -7,6 +7,7 @@ import {
   createInitialState,
   getCheckinType,
   getProfileStats,
+  filterWellbeingByDays,
   hasSleepEntryForDate,
   getScreenTitle,
   setCurrentTaskStatus,
@@ -52,16 +53,16 @@ test('profile statistics are derived from actual state collections', () => {
   const state = createInitialState()
   const stats = getProfileStats(state)
 
-  assert.equal(stats.activeProjects, 3)
+  assert.equal(stats.activeProjects, 1)
   assert.equal(stats.totalVacancies, 2)
   assert.equal(stats.completedToday, 1)
 })
 
-test('weekly focus progress is based on completed milestones', () => {
+test('weekly focus is linked to marked day tasks', () => {
   const state = createInitialState()
-  assert.equal(state.weeklyFocus.completed, 2)
-  assert.equal(state.weeklyFocus.total, 5)
-  assert.equal(state.weeklyFocus.progress, 40)
+  const focusTasks = state.dayTasks.filter((task) => task.focus)
+  assert.equal(focusTasks.length, 3)
+  assert.equal(focusTasks.filter((task) => task.status === 'done').length, 1)
 })
 
 test('check-in type is derived from local hour', () => {
@@ -100,4 +101,14 @@ test('sleep questions are hidden after one real sleep entry for the day', () => 
   ]
   assert.equal(hasSleepEntryForDate(entries, '2026-08-25'), true)
   assert.equal(hasSleepEntryForDate(entries, '2026-08-26'), false)
+})
+
+
+test('wellbeing period filter changes the selected dataset', () => {
+  const entries = [
+    { timestamp: '2026-08-01T08:00:00+03:00', energy: 1 },
+    { timestamp: '2026-08-24T08:00:00+03:00', energy: 5 },
+  ]
+  assert.equal(filterWellbeingByDays(entries, 7, new Date('2026-08-25T12:00:00+03:00')).length, 1)
+  assert.equal(filterWellbeingByDays(entries, 30, new Date('2026-08-25T12:00:00+03:00')).length, 2)
 })
