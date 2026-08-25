@@ -5,18 +5,27 @@ const projects = [
     title: 'Деньги на зубах',
     client: 'Клиентский проект',
     description: 'Подписочный клуб и автоматизация клиентского пути',
-    stage: 'Первый этап завершён',
-    status: 'waiting-payment',
+    status: 'waiting',
+    url: '',
     nextAction: 'Проверить поступление остатка оплаты',
-    deadline: '27 августа',
     nextMove: 'Клиент',
-    payment: { total: 'Не указано', paid: 'Не указано', rest: 'Уточнить' },
-    risk: 'Ожидается остаток оплаты',
-    firstContact: 'Уточнить',
-    startedAt: 'Уточнить',
+    deadlineText: '27 августа',
+    deadlineDate: '2026-08-27',
+    createdAt: '2026-08-10T12:00:00+03:00',
+    payment: { total: null, paid: null },
+    prepaid: false,
+    started: true,
     result: 'Работающий первый этап подписочного клуба',
-    roadmap: ['Первый этап завершён', 'Получить остаток оплаты', 'Согласовать следующий этап'],
-    questions: ['Сумма остатка оплаты', 'Состав следующего этапа'],
+    risk: 'Ожидается остаток оплаты',
+    roadmap: [
+      { text: 'Первый этап завершён', done: true },
+      { text: 'Получить остаток оплаты', done: false },
+      { text: 'Согласовать следующий этап', done: false },
+    ],
+    items: [
+      { kind: 'question', text: 'Сумма остатка оплаты', done: false },
+      { kind: 'question', text: 'Состав следующего этапа', done: false },
+    ],
   },
   {
     id: 'natalia',
@@ -24,18 +33,27 @@ const projects = [
     title: 'Воронка Наталии',
     client: 'Наталия',
     description: 'Воронка для бухгалтерского сопровождения',
-    stage: 'Исследование клиента',
-    status: 'client-turn',
+    status: 'waiting',
+    url: '',
     nextAction: 'Получить разбор пути реального клиента',
-    deadline: 'Уточнить',
     nextMove: 'Клиент',
-    payment: { total: 'Уточнить', paid: 'Уточнить', rest: 'Уточнить' },
-    risk: 'Нет подтверждённого срока следующего ответа',
-    firstContact: '28 июля 2026',
-    startedAt: '29 июля 2026',
+    deadlineText: '',
+    deadlineDate: null,
+    createdAt: '2026-07-29T12:00:00+03:00',
+    payment: { total: null, paid: null },
+    prepaid: false,
+    started: false,
     result: 'Воронка: лид-магнит → квалификация → консультация → сопровождение',
-    roadmap: ['Путь клиента', 'Основной продукт', 'Консультация', 'Лид-магнит', 'Материалы', 'Сборка бота'],
-    questions: ['Точный состав сопровождения', 'Формат консультации', 'Лид-магнит'],
+    risk: 'Нет подтверждённого срока следующего ответа',
+    roadmap: [
+      { text: 'Путь клиента', done: false },
+      { text: 'Основной продукт', done: false },
+      { text: 'Консультация', done: false },
+      { text: 'Лид-магнит', done: false },
+      { text: 'Материалы', done: false },
+      { text: 'Сборка бота', done: false },
+    ],
+    items: [{ kind: 'question', text: 'Точный состав сопровождения', done: false }],
   },
   {
     id: 'mini-app',
@@ -43,18 +61,26 @@ const projects = [
     title: 'Личная Mini App',
     client: 'Личный проект',
     description: 'Проекты, вакансии и быстрые чек-ины внутри Telegram',
-    stage: 'Прототип',
-    status: 'in-progress',
-    nextAction: 'Проверить первый интерфейс на телефоне',
-    deadline: 'После готовности прототипа',
+    status: 'active',
+    url: '',
+    nextAction: 'Проверить обновлённый интерфейс на телефоне',
     nextMove: 'Денис',
-    payment: { total: '–', paid: '–', rest: '–' },
-    risk: 'Не перегрузить первую версию',
-    firstContact: '24 августа 2026',
-    startedAt: '24 августа 2026',
+    deadlineText: '',
+    deadlineDate: null,
+    createdAt: '2026-08-24T12:00:00+03:00',
+    payment: { total: null, paid: null },
+    prepaid: false,
+    started: true,
     result: 'Простая рабочая панель внутри Telegram',
-    roadmap: ['Кликабельный прототип', 'База данных', 'Telegram', 'Hermes', 'Переносимый запуск'],
-    questions: ['Визуальная обратная связь', 'Состав реальных данных для переноса'],
+    risk: 'Не перегрузить первую версию',
+    roadmap: [
+      { text: 'Кликабельный прототип', done: true },
+      { text: 'База данных', done: true },
+      { text: 'Telegram', done: true },
+      { text: 'Постоянный адрес', done: false },
+      { text: 'Реальные данные', done: false },
+    ],
+    items: [],
   },
 ]
 
@@ -199,6 +225,9 @@ export function createInitialState() {
     selectedProjectId: null,
     selectedVacancyId: null,
     checkin: { energy: null, mood: null, focus: null, anxiety: null, sleepHours: null, distraction: null },
+    activities: [],
+    projectFilter: 'all',
+    projectSort: 'created',
     wellbeingHistory: createDemoWellbeingHistory(),
     wellbeingPeriod: 7,
     checkinResult: '',
@@ -245,6 +274,84 @@ export function setVacancyStatus(state, vacancyId, status) {
     ...state,
     vacancies: state.vacancies.map((vacancy) => vacancy.id === vacancyId ? { ...vacancy, status } : vacancy),
   }
+}
+
+export function normalizeProject(project) {
+  const payment = project.payment || {}
+  const toNumber = (value) => typeof value === 'number' ? value : (typeof value === 'string' && value.trim() ? Number(value.replace(/\D/g,'')) || null : null)
+  const roadmap = Array.isArray(project.roadmap)
+    ? project.roadmap.map((step) => typeof step === 'string' ? { text: step, done: false } : { text: step.text, done: Boolean(step.done) })
+    : []
+  return {
+    ...project,
+    status: ['active','waiting','archived'].includes(project.status) ? project.status : 'waiting',
+    url: project.url || '',
+    deadlineText: project.deadlineText || '',
+    deadlineDate: project.deadlineDate || null,
+    createdAt: project.createdAt || new Date().toISOString(),
+    payment: { total: toNumber(payment.total), paid: toNumber(payment.paid) },
+    prepaid: Number(payment.paid) > 0,
+    started: project.status === 'active',
+    roadmap,
+    items: Array.isArray(project.items) ? project.items : [],
+  }
+}
+
+export function countableProjects(state) {
+  return state.projects
+    .map(normalizeProject)
+    .filter((project) => project.prepaid || (project.started && !project.archived))
+}
+
+export function moneySummary(state) {
+  const projects = countableProjects(state).filter((project) => project.status !== 'archived')
+  const sum = (field) => projects.reduce((total, project) => total + (project.payment[field] || 0), 0)
+  const total = sum('total')
+  const paid = sum('paid')
+  return {
+    count: projects.length,
+    total,
+    paid,
+    rest: Math.max(total - paid, 0),
+  }
+}
+
+export function formatMoney(value) {
+  if (value == null) return '–'
+  return `${value.toLocaleString('ru-RU')} ₽`
+}
+
+export function daysUntil(dateString, today = new Date()) {
+  if (!dateString) return null
+  const target = new Date(`${dateString}T12:00:00`)
+  if (Number.isNaN(target.getTime())) return null
+  return Math.ceil((target - today) / 86400000)
+}
+
+export function projectProgress(project) {
+  const roadmap = project.roadmap || []
+  if (!roadmap.length) return null
+  const done = roadmap.filter((step) => step.done).length
+  return Math.round(done / roadmap.length * 100)
+}
+
+export function filterProjects(state) {
+  const normalized = state.projects.map(normalizeProject)
+  const byFilter = {
+    all: () => normalized,
+    active: () => normalized.filter((project) => project.status === 'active'),
+    waiting: () => normalized.filter((project) => project.status === 'waiting'),
+    archived: () => normalized.filter((project) => project.status === 'archived'),
+  }[state.projectFilter] || (() => normalized)
+  const sorted = [...byFilter()]
+  if (state.projectSort === 'deadline') {
+    sorted.sort((a,b) => (a.deadlineDate || '9999') < (b.deadlineDate || '9999') ? -1 : 1)
+  } else if (state.projectSort === 'rest') {
+    sorted.sort((a,b) => ((b.payment.total||0)-(b.payment.paid||0)) - ((a.payment.total||0)-(a.payment.paid||0)))
+  } else {
+    sorted.sort((a,b) => a.createdAt < b.createdAt ? 1 : -1)
+  }
+  return sorted
 }
 
 export function submitCheckin({ energy, focus, distraction }) {

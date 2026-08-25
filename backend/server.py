@@ -101,6 +101,7 @@ class Handler(BaseHTTPRequestHandler):
             complete_match = re.fullmatch(r"/api/tasks/([^/]+)/complete", parsed.path)
             vacancy_match = re.fullmatch(r"/api/vacancies/([^/]+)/status", parsed.path)
             comment_match = re.fullmatch(r"/api/calendar/(\d+)/comments", parsed.path)
+            project_match = re.fullmatch(r"/api/projects/([^/]+)", parsed.path)
             if status_match:
                 DB.set_task_status(status_match.group(1), payload["status"])
                 return self._send_json(DB.get_state())
@@ -113,6 +114,18 @@ class Handler(BaseHTTPRequestHandler):
             if comment_match:
                 comment = DB.add_event_comment(int(comment_match.group(1)), payload.get("text", ""))
                 return self._send_json({"comment": comment, "state": DB.get_state()}, HTTPStatus.CREATED)
+            if parsed.path == "/api/projects":
+                project = DB.create_project(payload)
+                return self._send_json({"project": project, "state": DB.get_state()}, HTTPStatus.CREATED)
+            if parsed.path == "/api/activities":
+                DB.add_activity(str(payload.get("kind", "note")), str(payload.get("text", "")))
+                return self._send_json({"state": DB.get_state()}, HTTPStatus.CREATED)
+            if project_match:
+                if payload.get("delete"):
+                    DB.delete_project(project_match.group(1))
+                    return self._send_json({"state": DB.get_state()})
+                project = DB.update_project(project_match.group(1), payload)
+                return self._send_json({"project": project, "state": DB.get_state()})
             if parsed.path == "/api/vacancy-search/pause":
                 status = DB.set_vacancy_search_paused(bool(payload.get("paused")))
                 return self._send_json({"status": status, "state": DB.get_state()})

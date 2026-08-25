@@ -53,6 +53,23 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(after["sampleSize"], before + 1)
         self.assertEqual(after["peakEnergyType"], "evening")
 
+    def test_project_crud_persists(self):
+        created = self.db.create_project({"title": "Новый клиент", "client": "Иван", "total": 50000, "started": True})
+        self.assertEqual(created["status"], "active")
+        updated = self.db.update_project(created["id"], {"payment": {"total": 50000, "paid": 20000}})
+        self.assertEqual(updated["payment"]["paid"], 20000)
+        summary_state = self.db.get_state()
+        project = next(p for p in summary_state["projects"] if p["id"] == created["id"])
+        self.assertEqual(project["prepaid"], True)
+        self.db.delete_project(created["id"])
+        remaining = [p["id"] for p in self.db.get_state()["projects"]]
+        self.assertNotIn(created["id"], remaining)
+
+    def test_activity_is_saved(self):
+        self.db.add_activity("project", "Работаю над воронкой")
+        state = self.db.get_state()
+        self.assertEqual(state["activities"][0]["text"], "Работаю над воронкой")
+
     def test_calendar_comment_is_persisted_in_event_state(self):
         event = self.db.get_state()["calendarEvents"][0]
         self.db.add_event_comment(event["id"], "Уточнить время с клиентом")

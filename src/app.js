@@ -3,16 +3,21 @@ import {
   calculateWellbeingStats,
   completeCurrentTask,
   createInitialState,
+  daysUntil,
+  filterProjects,
+  formatMoney,
   getCheckinType,
   getProfileStats,
   hasSleepEntryForDate,
   getScreenTitle,
+  moneySummary,
+  projectProgress,
   setCurrentTaskStatus,
   setVacancyStatus,
   submitCheckin,
 } from './model.js'
 
-let state = { ...createInitialState(), confirmCompletion: false, serverConnected: false, searchExpanded: false, selectedEventId: null, eventCommentDraft: '', searchBusy: false }
+let state = { ...createInitialState(), confirmCompletion: false, serverConnected: false, searchExpanded: false, selectedEventId: null, eventCommentDraft: '', searchBusy: false, projectMenuOpen: false, createFormOpen: false }
 const app = document.querySelector('#app')
 const telegram = window.Telegram?.WebApp
 telegram?.ready()
@@ -61,9 +66,9 @@ const navItems = [
 ]
 
 const projectStatus = {
-  'waiting-payment': ['Ожидаем оплату', 'amber'],
-  'client-turn': ['Ход клиента', 'muted'],
-  'in-progress': ['В работе', 'mint'],
+  active: ['В работе', 'mint'],
+  waiting: ['Ожидание', 'amber'],
+  archived: ['Архив', 'muted'],
 }
 const vacancyStatus = { review: 'На рассмотрении', later: 'Посмотреть позже', preparing: 'Готовим отклик', sent: 'Отправлено' }
 const taskStatus = { ready: 'Следующая по приоритету', 'in-progress': 'Сейчас в работе', postponed: 'На паузе', blocked: 'Есть препятствие', done: 'Завершено' }
@@ -142,41 +147,102 @@ function todayView() {
     </section>`
 }
 
+function currentWeekDays() {
+  const now = new Date()
+  const moscow = new Date(now.toLocaleString('en-US', { timeZone:'Europe/Moscow' }))
+  const dayOfWeek = (moscow.getDay() + 6) % 7
+  const monday = new Date(moscow)
+  monday.setDate(moscow.getDate() - dayOfWeek)
+  return Array.from({length:7},(_,offset) => {
+    const date = new Date(monday)
+    date.setDate(monday.getDate() + offset)
+    return { day: date.getDate(), isToday: date.toDateString() === moscow.toDateString() }
+  })
+}
+
 function calendarView() {
   const eventsByDay = new Map(state.calendarEvents.map((event) => [event.day, event]))
-  const blanks = Array(5).fill('<span class="calendar-day empty"></span>').join('')
+  const week = currentWeekDays()
+  const monthCollapsed = state.calendarCollapsed !== false ? true : false
   return `${header('Август 2026')}
-    <div class="calendar-head"><button>‹</button><h2>Август</h2><button>›</button></div>
+    <section class="time-left"><div><p class="kicker">До конца недели</p><strong>${7 - ((new Date().getDay() + 6) % 7)} дн</strong></div><div class="week-meter"><span style="width:${Math.round(((new Date().getDay() + 6) % 7 + 1) / 7 * 100)}%"></span></div><small>Главная контрольная точка – 31 августа</small></section>
+    ${monthCollapsed ? `<div class="week-strip-card"><div class="section-line"><h2>Текущая неделя</h2><button class="text-button" data-toggle-month>Весь месяц</button></div>
+      <div class="week-days">${week.map(({day,isToday}) => `<div class="week-day ${isToday ? 'today' : ''} ${eventsByDay.has(day) ? 'has-event' : ''}"><span>${day}</span>${eventsByDay.get(day) ? '<i></i>' : ''}</div>`).join('')}</div></div>`
+    : `<div class="calendar-head"><button data-toggle-month>‹ Свернуть</button><h2>Август</h2><span></span></div>
     <div class="calendar-weekdays">${['ПН','ВТ','СР','ЧТ','ПТ','СБ','ВС'].map((day) => `<span>${day}</span>`).join('')}</div>
-    <div class="month-grid">${blanks}${Array.from({length:31},(_,i) => {
+    <div class="month-grid">${Array(4).fill('<span class="calendar-day empty"></span>').join('')}${Array.from({length:31},(_,i) => {
       const day = i + 1; const event = eventsByDay.get(day)
-      return `<button class="calendar-day ${day === 24 ? 'today' : ''} ${event ? 'has-event' : ''}"><span>${day}</span>${event ? `<i class="${event.type}"></i>` : ''}</button>`
-    }).join('')}</div>
-    <section class="time-left"><div><p class="kicker">До конца недели</p><strong>6 дней</strong></div><div class="week-meter"><span style="width:14%"></span></div><small>Главная контрольная точка – 30 августа</small></section>
+      return `<button class="calendar-day ${[24,25].includes(day) ? 'today' : ''} ${event ? 'has-event' : ''}"><span>${day}</span>${event ? `<i class="${event.type}"></i>` : ''}</button>`
+    }).join('')}</div>`}
     <section class="plain-section"><div class="section-line"><h2>Планы и дедлайны</h2><span class="section-count">${state.calendarEvents.length}</span></div>
       <div class="calendar-agenda">${state.calendarEvents.map((event) => `<button class="agenda-row" data-event-id="${event.id}"><time><b>${event.day}</b><small>АВГ</small></time><span><b>${event.label}</b><small>${{task:'Задача',payment:'Оплата',deadline:'Дедлайн',focus:'Фокус недели'}[event.type]}${event.comments?.length ? ` · комментариев: ${event.comments.length}` : ''}</small></span><em class="${event.type}"></em></button>`).join('')}</div>
     </section>`
 }
 
+function deadlineBadge(project) {
+  const days = daysUntil(project.deadlineDate)
+  if (days == null) return ''
+  if (days < 0) return `<span class="deadline-badge overdue">просрочен ${Math.abs(days)} дн</span>`
+  if (days === 0) return '<span class="deadline-badge today">дедлайн сегодня</span>'
+  return `<span class="deadline-badge">– ${days} дн</span>`
+}
+
 function projectsView() {
   if (state.selectedProjectId) return projectDetail(state.projects.find((project) => project.id === state.selectedProjectId))
-  return `${header('3 демонстрационных проекта')}
-    <div class="subtle-note">Пока здесь примеры. После проверки заменим их актуальными данными.</div>
-    <div class="segmented"><button class="active">Активные</button><button>Ожидание</button><button>Архив</button></div>
-    <div class="object-list">${state.projects.map((project) => {
+  const summary = moneySummary(state)
+  const projects = filterProjects(state)
+  const tabs = [['all','Все'],['active','В работе'],['waiting','Ожидание'],['archived','Архив']]
+  return `${header(`${state.projects.length} проектов`)}
+    <section class="money-summary">
+      <div><small>Проектов на сумму</small><b>${formatMoney(summary.total)}</b></div>
+      <div><small>Оплачено</small><b class="mint">${formatMoney(summary.paid)}</b></div>
+      <div><small>Остаток</small><b class="amber">${formatMoney(summary.rest)}</b></div>
+    </section>
+    <div class="segmented">${tabs.map(([key,label]) => `<button class="${state.projectFilter === key ? 'active' : ''}" data-project-filter="${key}">${label}</button>`).join('')}</div>
+    <div class="filter-row"><small>Сортировка:</small>${[['created','по созданию'],['deadline','по дедлайну'],['rest','по остатку']].map(([key,label]) => `<button class="${state.projectSort === key ? 'active' : ''}" data-project-sort="${key}">${label}</button>`).join('')}</div>
+    <div class="object-list">${projects.map((project) => {
       const [label,tone] = projectStatus[project.status]
-      return `<button class="object-row" data-project-id="${project.id}"><span class="object-mark ${tone}">${project.title[0]}</span><span class="object-copy"><small>${label}</small><b>${project.title}</b><em>${project.nextAction}</em></span><span class="object-side"><small>${project.nextMove}</small><i>›</i></span></button>`
-    }).join('')}</div>
-    <button class="round-add">＋</button>`
+      const progress = projectProgress(project)
+      return `<button class="object-row" data-project-id="${project.id}"><span class="object-mark ${tone}">${project.title[0]}</span><span class="object-copy"><small>${label}${progress != null ? ` · ${progress}%` : ''}</small><b>${project.title}</b><em>${project.nextAction || project.description}</em></span><span class="object-side"><small>${project.deadlineText ? project.deadlineText : (project.payment.rest ? formatMoney(project.payment.total - project.payment.paid) : '')}</small><i>›</i></span>${deadlineBadge(project)}</button>`
+    }).join('') || '<div class="subtle-note">Пока пусто</div>'}</div>
+    <button class="round-add" data-create-project>＋</button>
+    ${state.createFormOpen ? createProjectForm() : ''}`
+}
+
+function createProjectForm() {
+  return `<div class="modal-backdrop"><div class="comment-sheet">
+    <button class="sheet-close" data-close-create>×</button>
+    <h2>Новый проект</h2>
+    <label><span>Название</span><input data-new-title placeholder="Например: Воронка для школы"/></label>
+    <label><span>Клиент</span><input data-new-client placeholder="Имя клиента"/></label>
+    <label><span>Сумма, ₽</span><input data-new-total inputmode="numeric" placeholder="50000"/></label>
+    <label><span>Дедлайн</span><input data-new-deadline type="date"/></label>
+    <label class="check-line"><input type="checkbox" data-new-started/> <span>Уже взял в работу</span></label>
+    <button class="primary-action save-comment" data-save-create>Создать</button>
+  </div></div>`
 }
 
 function projectDetail(project) {
-  const [label,tone] = projectStatus[project.status]
-  return `<header class="detail-top"><button data-back-projects>‹</button><div><p class="kicker">Проект</p><h1>${project.title}</h1></div><button>•••</button></header>
-    <section class="detail-summary"><span class="status-pill ${tone}">${label}</span><p>${project.description}</p><div class="next-block"><small>Ближайшее действие</small><b>${project.nextAction}</b><span>Следующий ход: ${project.nextMove}</span></div></section>
-    <section class="data-section"><h2>Ключевые данные</h2><div class="data-list"><div><span>Результат</span><b>${project.result}</b></div><div><span>Срок</span><b>${project.deadline}</b></div><div><span>Первое касание</span><b>${project.firstContact}</b></div><div><span>Начало</span><b>${project.startedAt}</b></div></div></section>
-    <section class="data-section"><h2>Оплата</h2><div class="stats-inline"><div><small>Всего</small><b>${project.payment.total}</b></div><div><small>Оплачено</small><b>${project.payment.paid}</b></div><div><small>Остаток</small><b>${project.payment.rest}</b></div></div></section>
-    <section class="data-section"><h2>Дорожная карта</h2><ol class="timeline">${project.roadmap.map((step,index) => `<li class="${index === 0 ? 'active' : ''}"><span>${index + 1}</span><b>${step}</b></li>`).join('')}</ol></section>`
+  const [label,tone] = projectStatus[project.status] || ['Без статуса','muted']
+  const progress = projectProgress(project)
+  const createdDays = Math.max(0, Math.floor((Date.now() - new Date(project.createdAt)) / 86400000))
+  const menuOpen = state.projectMenuOpen
+  return `<header class="detail-top"><button data-back-projects>‹</button><div><p class="kicker">Проект · идёт ${createdDays} дн</p><h1>${project.title}</h1></div><button data-toggle-project-menu>•••</button></header>
+    <section class="detail-summary">${deadlineBadge(project)}<span class="status-pill ${tone}">${label}</span>${progress != null ? `<div class="progress-track slim"><span style="width:${progress}%"></span></div><small>Завершён на ${progress}%</small>` : ''}
+      <p>${project.description || ''}</p>
+      ${menuOpen ? `<div class="project-menu">
+        <div class="menu-label">Статус</div>
+        <div class="status-options">${Object.entries(projectStatus).map(([key,[name]]) => `<button class="${project.status === key ? 'selected' : ''}" data-set-status="${key}">${name}</button>`).join('')}</div>
+        ${project.url ? `<a class="menu-link" href="${project.url}" target="_blank" rel="noopener">Открыть ссылку →</a>` : `<button data-edit-url>Добавить ссылку</button>`}
+        <button class="danger" data-delete-project>Удалить из списка</button>
+      </div>` : ''}
+      <div class="next-block"><small>Ближайшее действие</small><b>${project.nextAction || 'Не задано'}</b><span>Следующий ход: ${project.nextMove || '–'}</span></div></section>
+    <section class="data-section"><h2>Оплата</h2><div class="stats-inline"><div><small>Всего</small><b>${formatMoney(project.payment?.total)}</b></div><div><small>Оплачено</small><b>${formatMoney(project.payment?.paid)}</b></div><div><small>Остаток</small><b>${formatMoney((project.payment?.total||0) - (project.payment?.paid||0) || null)}</b></div></div></section>
+    <section class="data-section"><div class="section-line"><h2>Дорожная карта</h2>${project.roadmap.length ? `<span>${project.roadmap.filter((step) => step.done).length}/${project.roadmap.length}</span>` : ''}</div>
+      ${project.roadmap.length ? `<ol class="timeline clickable">${project.roadmap.map((step,index) => `<li class="${step.done ? 'done' : index === 0 && !project.roadmap.some((s) => !s.done) ? 'active' : ''}" data-roadmap-step="${index}"><span>${index + 1}</span><b>${step.text}</b></li>`).join('')}</ol>` : '<div class="text-box muted-box">Карта появится после согласования с клиентом</div>'}
+      <div class="stack-actions"><button data-add-item="task">+ Задание</button><button data-add-item="question">+ Вопрос клиенту</button></div>
+      ${project.items.length ? `<div class="items-list">${project.items.map((item,index) => `<button class="item-row ${item.done ? 'done' : ''}" data-item-index="${index}"><span>${item.done ? '✓' : '○'}</span><b>${item.text}</b><small>${item.kind === 'question' ? 'вопрос' : 'задание'}</small></button>`).join('')}</div>` : ''}
+    </section>`
 }
 
 function vacanciesView() {
@@ -217,6 +283,21 @@ function moscowDateString() {
   return `${values.year}-${values.month}-${values.day}`
 }
 
+function lastCheckinInfo() {
+  const real = state.wellbeingHistory.filter((entry) => !entry.demo)
+  const last = real.at(-1)
+  if (!last) return null
+  const time = new Date(last.timestamp).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })
+  return { time, type: { morning:'утренний', day:'дневной', evening:'вечерний' }[last.type] || '' }
+}
+
+const quickActivities = [
+  ['project', 'Работа над проектом'],
+  ['cleaning', 'Уборка'],
+  ['meal', 'Завтрак / обед / ужин'],
+  ['rest', 'Отдых'],
+]
+
 function checkinView() {
   const type = currentCheckinType()
   const sleepAlreadyRecorded = hasSleepEntryForDate(state.wellbeingHistory,moscowDateString())
@@ -227,8 +308,9 @@ function checkinView() {
   }[type]
   const meta = type === 'morning' && sleepAlreadyRecorded ? ['Состояние сейчас','Как ты себя чувствуешь сейчас'] : defaultMeta
   const sleep = type === 'morning' && !sleepAlreadyRecorded ? `<div class="check-question"><p class="kicker">Сон</p><h2>Сколько часов спал?</h2><div class="sleep-grid">${Array.from({length:12},(_,hours) => `<button class="${state.checkin.sleepHours === hours ? 'selected' : ''}" data-sleep-hours="${hours}">${hours}</button>`).join('')}</div></div>${metricQuestion('Качество сна','Насколько восстановился?','sleep-quality',state.checkin.sleepQuality)}` : ''
+  const last = lastCheckinInfo()
   return `${header(meta[0])}
-    <div class="checkin-intro"><span>${{morning:'☼',day:'◐',evening:'◒'}[type]}</span><div><p class="kicker">${meta[0]}</p><h2>${meta[1]}</h2><small>Время сохранится автоматически</small></div></div>
+    <div class="checkin-intro"><span>${{morning:'☼',day:'◐',evening:'◒'}[type]}</span><div><p class="kicker">${meta[0]}</p><h2>${meta[1]}</h2><small>${last ? `Последний чек-ин: ${last.type}, ${last.time}` : 'Первый чек-ин – время сохранится автоматически'}</small></div></div>
     <section class="checkin-sheet"><div class="checkin-status"><span style="width:${state.checkin.energy && state.checkin.mood ? '68%' : state.checkin.energy ? '35%' : '10%'}"></span></div>
       ${sleep}
       ${metricQuestion('Энергия','Сколько сил сейчас?','energy',state.checkin.energy)}
@@ -236,6 +318,7 @@ function checkinView() {
       ${metricQuestion('Концентрация','Насколько легко держать фокус?','focus',state.checkin.focus)}
       ${metricQuestion('Тревога','Насколько тревожно?','anxiety',state.checkin.anxiety)}
       <div class="check-question"><p class="kicker">Контекст</p><h2>Что отвлекает?</h2><div class="choice-chips">${[['phone','Телефон'],['tasks','Другие задачи'],['state','Состояние'],['none','Ничего']].map(([key,label]) => `<button class="${state.checkin.distraction === key ? 'selected' : ''}" data-distraction="${key}">${label}</button>`).join('')}</div></div>
+      <div class="check-question"><p class="kicker">Чем занят сейчас</p><h2>Свободная заметка</h2><div class="choice-chips wrap">${quickActivities.map(([key,label]) => `<button class="${state.checkin.activity === key ? 'selected' : ''}" data-activity="${key}">${label}</button>`).join('')}</div><textarea data-activity-note maxlength="500" placeholder="Что именно делаешь? (необязательно)">${state.checkin.activityNote || ''}</textarea></div>
       <button class="complete-checkin" data-submit-checkin>Завершить чек-ин</button>
     </section>${state.checkinResult ? `<div class="result-note"><span>✓</span><div><small>Следующее действие</small><b>${state.checkinResult.replace('Следующее действие: ','')}</b></div></div>` : ''}`
 }
@@ -253,7 +336,7 @@ function wellbeingSection() {
   })
   return `<section class="wellbeing-section">
     <div class="wellbeing-head"><div><p class="kicker">Состояние</p><h2>Последние ${state.wellbeingPeriod} дней</h2></div><div class="period-toggle"><button class="${state.wellbeingPeriod === 7 ? 'active' : ''}" data-wellbeing-period="7">7</button><button class="${state.wellbeingPeriod === 30 ? 'active' : ''}" data-wellbeing-period="30">30</button></div></div>
-    <div class="demo-data-label">Демонстрационные данные · ${stats.sampleSize} чек-ин</div>
+    <div class="demo-data-label">${state.serverConnected ? `Данные из базы · ${stats.sampleSize} чек-ин` : `Демонстрационные данные · ${stats.sampleSize} чек-ин`}</div>
     <div class="wellbeing-metrics">
       <div><small>Энергия</small><b>${stats.averageEnergy}</b><span>/ 5</span></div>
       <div><small>Настроение</small><b>${stats.averageMood}</b><span>/ 5</span></div>
@@ -298,9 +381,75 @@ function bottomNav() {
   return `<nav class="bottom-dock">${navItems.map(([key,icon,label]) => `<button class="${state.activeScreen === key ? 'active' : ''}" data-nav="${key}"><span>${icon}</span><small>${label}</small></button>`).join('')}</nav>`
 }
 
+async function updateSelectedProject(patch) {
+  const projectId = state.selectedProjectId
+  if (!projectId) return null
+  try {
+    const result = await apiRequest(`/api/projects/${projectId}`, { method:'POST', body:JSON.stringify(patch) })
+    setState(mergeServerState(result.state))
+    return result.project
+  } catch (error) {
+    console.warn('Project was not updated',error)
+    return null
+  }
+}
+
 function bindEvents() {
   document.querySelectorAll('[data-nav]').forEach((button) => button.addEventListener('click', () => setState({ ...state, activeScreen: button.dataset.nav, selectedProjectId: null, selectedVacancyId: null })))
-  document.querySelectorAll('[data-open-profile]').forEach((button) => button.addEventListener('click', () => setState({ ...state, profileOpen: true })))
+  document.querySelectorAll('[data-project-filter]').forEach((button) => button.addEventListener('click', () => setState({ ...state, projectFilter:button.dataset.projectFilter })))
+  document.querySelectorAll('[data-project-sort]').forEach((button) => button.addEventListener('click', () => setState({ ...state, projectSort:button.dataset.projectSort })))
+  document.querySelector('[data-create-project]')?.addEventListener('click', () => setState({ ...state, createFormOpen:true }))
+  document.querySelector('[data-close-create]')?.addEventListener('click', () => setState({ ...state, createFormOpen:false }))
+  document.querySelector('[data-save-create]')?.addEventListener('click', async () => {
+    const title = document.querySelector('[data-new-title]')?.value.trim()
+    if (!title) return
+    try {
+      const result = await apiRequest('/api/projects', { method:'POST', body:JSON.stringify({
+        title,
+        client: document.querySelector('[data-new-client]')?.value,
+        total: Number((document.querySelector('[data-new-total]')?.value || '').replace(/\D/g,'')) || null,
+        deadlineDate: document.querySelector('[data-new-deadline]')?.value || null,
+        started: document.querySelector('[data-new-started]')?.checked,
+      }) })
+      setState({ ...mergeServerState(result.state), createFormOpen:false, selectedProjectId:result.project.id })
+    } catch (error) { console.warn('Project was not created',error) }
+  })
+  document.querySelector('[data-toggle-month]')?.addEventListener('click', () => setState({ ...state, calendarCollapsed: state.calendarCollapsed === false ? true : false }))
+  document.querySelector('[data-toggle-project-menu]')?.addEventListener('click', () => setState({ ...state, projectMenuOpen:!state.projectMenuOpen }))
+  document.querySelectorAll('[data-set-status]').forEach((button) => button.addEventListener('click', () => updateSelectedProject({ status:button.dataset.setStatus })))
+  document.querySelectorAll('[data-roadmap-step]').forEach((stepElement) => stepElement.addEventListener('click', async () => {
+    const project = state.projects.find((item) => item.id === state.selectedProjectId)
+    if (!project) return
+    const roadmap = project.roadmap.map((step,index) => ({ text:step.text, done: index === Number(stepElement.dataset.roadmapStep) ? !step.done : step.done }))
+    updateSelectedProject({ roadmap })
+  }))
+  document.querySelectorAll('[data-add-item]').forEach((button) => button.addEventListener('click', () => {
+    const kind = button.dataset.addItem
+    const text = window.prompt(kind === 'question' ? 'Вопрос клиенту:' : 'Что за задание?')
+    if (!text?.trim()) return
+    const project = state.projects.find((item) => item.id === state.selectedProjectId)
+    updateSelectedProject({ items: [...(project.items || []), { kind, text:text.trim(), done:false }] })
+  }))
+  document.querySelectorAll('[data-item-index]').forEach((row) => row.addEventListener('click', () => {
+    const project = state.projects.find((item) => item.id === state.selectedProjectId)
+    const index = Number(row.dataset.itemIndex)
+    updateSelectedProject({ items: project.items.map((item,i) => i === index ? { ...item, done:!item.done } : item) })
+  }))
+  document.querySelector('[data-delete-project]')?.addEventListener('click', async () => {
+    if (!window.confirm('Удалить проект из списка?')) return
+    try {
+      const result = await apiRequest(`/api/projects/${state.selectedProjectId}`, { method:'POST', body:JSON.stringify({ delete:true }) })
+      setState({ ...mergeServerState(result.state), selectedProjectId:null, projectMenuOpen:false })
+    } catch (error) { console.warn('Project was not deleted',error) }
+  })
+  document.querySelector('[data-edit-url]')?.addEventListener('click', () => {
+    const url = window.prompt('Ссылка на вакансию/чат/документ:', '')
+    if (url?.trim()) updateSelectedProject({ url:url.trim() })
+  })
+  document.querySelectorAll('[data-activity]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, activity: button.dataset.activity } })))
+  document.querySelector('[data-activity-note]')?.addEventListener('input', (event) => {
+    state.checkin.activityNote = event.target.value
+  })
   document.querySelector('[data-close-profile]')?.addEventListener('click', () => setState({ ...state, profileOpen: false }))
   document.querySelectorAll('[data-event-id]').forEach((button) => button.addEventListener('click', () => setState({ ...state, selectedEventId:Number(button.dataset.eventId), eventCommentDraft:'' })))
   document.querySelector('[data-close-event]')?.addEventListener('click', () => setState({ ...state, selectedEventId:null, eventCommentDraft:'' }))
@@ -312,11 +461,14 @@ function bindEvents() {
   document.querySelector('[data-save-comment]')?.addEventListener('click', async () => {
     const eventId = state.selectedEventId
     const text = state.eventCommentDraft.trim()
-    if (!text) return
+    if (!text || state.commentSaving) return
+    state.commentSaving = true
     try {
       const result = await apiRequest(`/api/calendar/${eventId}/comments`, { method:'POST', body:JSON.stringify({ text }) })
-      setState({ ...mergeServerState(result.state), selectedEventId:eventId, eventCommentDraft:'' })
+      state = { ...mergeServerState(result.state), selectedEventId:eventId, eventCommentDraft:'' }
+      render()
     } catch (error) { console.warn('Comment was not saved',error) }
+    state.commentSaving = false
   })
   document.querySelector('[data-toggle-search]')?.addEventListener('click', () => setState({ ...state, searchExpanded:!state.searchExpanded }))
   document.querySelector('[data-search-now]')?.addEventListener('click', async () => {
@@ -389,12 +541,26 @@ function bindEvents() {
   document.querySelectorAll('[data-sleep-quality]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, sleepQuality:Number(button.dataset.sleepQuality) } })))
   document.querySelectorAll('[data-sleep-hours]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, sleepHours:Number(button.dataset.sleepHours) } })))
   document.querySelectorAll('[data-distraction]').forEach((button) => button.addEventListener('click', () => setState({ ...state, checkin: { ...state.checkin, distraction:button.dataset.distraction } })))
-  document.querySelectorAll('[data-wellbeing-period]').forEach((button) => button.addEventListener('click', () => setStatePreserveProfileScroll({ ...state, wellbeingPeriod:Number(button.dataset.wellbeingPeriod) })))
+  document.querySelectorAll('[data-wellbeing-period]').forEach((button) => button.addEventListener('click', async () => {
+    const days = Number(button.dataset.wellbeingPeriod)
+    setStatePreserveProfileScroll({ ...state, wellbeingPeriod:days })
+    try {
+      const stats = await apiRequest(`/api/stats?days=${days}`)
+      const serverState = await apiRequest('/api/state')
+      state = mergeServerState({ ...serverState, stats })
+      render()
+    } catch (error) { console.warn('Stats were not refreshed',error) }
+  }))
   document.querySelector('[data-submit-checkin]')?.addEventListener('click', async () => {
     const localResult = submitCheckin(state.checkin)
     const localState = addWellbeingEntry(state,state.checkin)
     setState({ ...localState, checkinResult:localResult })
     try {
+      const activity = state.checkin.activity || null
+      const note = (state.checkin.activityNote || '').trim()
+      if (activity || note) {
+        await apiRequest('/api/activities', { method:'POST', body:JSON.stringify({ kind:activity || 'note', text: note || quickActivities.find(([key]) => key === activity)?.[1] || 'Заметка без текста' }) })
+      }
       const result = await apiRequest('/api/checkins', { method:'POST', body:JSON.stringify(state.checkin) })
       setState({ ...mergeServerState(result.state), checkinResult:localResult })
     } catch (error) { console.warn('Check-in was not saved',error) }
