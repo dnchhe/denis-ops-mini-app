@@ -34,7 +34,7 @@ def main():
     bot = api(token, "getMe")
     api(token, "setChatMenuButton", {
         "chat_id": 7905681657,
-        "menu_button": {"type": "web_app", "text": "Открыть систему", "web_app": {"url": url}},
+        "menu_button": {"type": "web_app", "text": "Открыть", "web_app": {"url": url}},
     })
     print(json.dumps({"bot_username": bot.get("username"), "menu_button": "configured", "url": url}, ensure_ascii=False))
 
