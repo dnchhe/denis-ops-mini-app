@@ -35,4 +35,5 @@ if (/\.\/src\/(?:app\.js|styles\.css)/.test(inlined)) {
 await rm('dist', { recursive: true, force: true })
 await mkdir('dist', { recursive: true })
 await writeFile('dist/index.html', inlined)
+await writeFile('dist/.nojekyll', '')
 console.log(`Built dist/index.html (${Math.round(inlined.length / 1024)} KB, single file)`)

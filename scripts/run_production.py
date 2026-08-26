@@ -23,6 +23,10 @@ os.environ["APP_ENV"] = "production"
 os.environ.setdefault("APP_HOST", "0.0.0.0")
 os.environ.setdefault("APP_PORT", "4173")
 os.environ.setdefault("ALLOWED_TELEGRAM_USER_ID", "7905681657")
+os.environ.setdefault(
+    "APP_ALLOWED_ORIGINS",
+    "https://miniapp.dnchhe.ru,https://dnchhe.github.io",
+)
 
 from backend.server import main
 

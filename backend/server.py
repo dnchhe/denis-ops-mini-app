@@ -1,4 +1,5 @@
 import json
+import gzip
 import mimetypes
 import os
 import re
@@ -19,6 +20,20 @@ DATA_DIR = Path(os.environ.get("APP_DATA_DIR", ROOT / "data"))
 DB = Database(DATA_DIR / "mini_app.sqlite3")
 DB.initialize()
 
+DEFAULT_ALLOWED_ORIGINS = {
+    "https://miniapp.dnchhe.ru",
+    "https://dnchhe.github.io",
+}
+
+
+def allowed_cors_origin(origin):
+    configured = os.environ.get("APP_ALLOWED_ORIGINS", "")
+    allowed = DEFAULT_ALLOWED_ORIGINS | {
+        item.strip().rstrip("/") for item in configured.split(",") if item.strip()
+    }
+    normalized = (origin or "").rstrip("/")
+    return normalized if normalized in allowed else None
+
 
 def checkin_type(hour):
     if hour < 12:
@@ -34,12 +49,25 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         print(f"{self.address_string()} - {format % args}")
 
+    def end_headers(self):
+        origin = allowed_cors_origin(self.headers.get("Origin"))
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        super().end_headers()
+
     def _send_json(self, payload, status=HTTPStatus.OK):
         body = json.dumps(payload, ensure_ascii=False).encode()
+        compressed = len(body) >= 1024 and "gzip" in self.headers.get("Accept-Encoding", "").lower()
+        if compressed:
+            body = gzip.compress(body, compresslevel=6)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        if compressed:
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Vary", "Accept-Encoding")
         self.end_headers()
         self.wfile.write(body)
 
@@ -72,6 +100,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.NO_CONTENT)
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Telegram-Init-Data")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Max-Age", "86400")
         self.end_headers()
 
     def do_GET(self):

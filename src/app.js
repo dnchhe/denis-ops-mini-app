@@ -29,6 +29,10 @@ const telegram = window.Telegram?.WebApp
 telegram?.ready()
 telegram?.expand()
 
+const API_BASE = ['localhost', '127.0.0.1'].includes(window.location.hostname)
+  ? ''
+  : 'https://api-miniapp.dnchhe.ru'
+
 const h = (value = '') => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[char]))
 const safeUrl = (value) => {
   const raw = String(value || '').trim()
@@ -40,7 +44,7 @@ const safeUrl = (value) => {
 }
 
 async function apiRequest(path, options = {}) {
-  const response = await fetch(path, {
+  const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers:{ 'Content-Type':'application/json', 'X-Telegram-Init-Data':telegram?.initData || '', ...(options.headers || {}) },
   })

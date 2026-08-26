@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 
 from backend.auth import validate_init_data
 from backend.db import Database
+from backend.server import allowed_cors_origin
 
 
 class DatabaseTests(unittest.TestCase):
@@ -127,6 +128,15 @@ class TelegramAuthTests(unittest.TestCase):
     def test_invalid_init_data_is_rejected(self):
         with self.assertRaises(ValueError):
             validate_init_data("auth_date=1&hash=bad", "token", max_age_seconds=None)
+
+
+class CorsTests(unittest.TestCase):
+    def test_pages_and_custom_domain_are_allowed(self):
+        self.assertEqual(allowed_cors_origin("https://dnchhe.github.io"), "https://dnchhe.github.io")
+        self.assertEqual(allowed_cors_origin("https://miniapp.dnchhe.ru"), "https://miniapp.dnchhe.ru")
+
+    def test_unknown_origin_is_rejected(self):
+        self.assertIsNone(allowed_cors_origin("https://example.com"))
 
 
 if __name__ == "__main__":
