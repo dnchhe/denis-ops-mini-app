@@ -5,7 +5,10 @@ import time
 from urllib.parse import parse_qsl
 
 
-def validate_init_data(init_data: str, bot_token: str, max_age_seconds: int | None = 86400) -> dict:
+DEFAULT_INIT_DATA_MAX_AGE_SECONDS = 30 * 86400
+
+
+def validate_init_data(init_data: str, bot_token: str, max_age_seconds: int | None = DEFAULT_INIT_DATA_MAX_AGE_SECONDS) -> dict:
     if not init_data or not bot_token:
         raise ValueError("Telegram initData and bot token are required")
     values = dict(parse_qsl(init_data, keep_blank_values=True))

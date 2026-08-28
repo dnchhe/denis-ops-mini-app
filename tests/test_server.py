@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from urllib.parse import urlencode
@@ -122,6 +123,21 @@ class TelegramAuthTests(unittest.TestCase):
         payload["hash"] = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
 
         result = validate_init_data(urlencode(payload), token, max_age_seconds=None)
+
+        self.assertEqual(result["user"]["id"], 7905681657)
+
+    def test_two_day_old_signed_session_is_accepted_by_default(self):
+        token = "123456:TEST_TOKEN"
+        payload = {
+            "auth_date": str(int(time.time()) - 2 * 86400),
+            "query_id": "AAStaleWebView",
+            "user": json.dumps({"id": 7905681657}, separators=(",", ":")),
+        }
+        data_check_string = "\n".join(f"{key}={payload[key]}" for key in sorted(payload))
+        secret_key = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
+        payload["hash"] = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+
+        result = validate_init_data(urlencode(payload), token)
 
         self.assertEqual(result["user"]["id"], 7905681657)
 
