@@ -197,10 +197,12 @@ function projectsView() {
 function projectDetail(project) {
   const [label,tone] = projectStatus[project.status] || ['Без статуса','muted']
   const progress = projectProgress(project)
-  const createdDays = Math.max(0,Math.floor((Date.now()-new Date(project.createdAt))/86400000))
+  const createdLabel = project.createdAt
+    ? `идёт ${Math.max(0,Math.floor((Date.now()-new Date(project.createdAt))/86400000))} дн`
+    : 'дата старта не указана'
   const payment = project.payment || {total:null,paid:null,entries:[]}
   const rest = payment.total == null ? null : Math.max((payment.total || 0)-(payment.paid || 0),0)
-  return `<header class="detail-top"><button type="button" data-back-projects>‹</button><div><p class="kicker">Проект · идёт ${createdDays} дн</p><h1>${h(project.title)}</h1></div><button type="button" class="detail-edit" data-edit-project="${h(project.id)}" aria-label="Редактировать">✎</button></header>
+  return `<header class="detail-top"><button type="button" data-back-projects>‹</button><div><p class="kicker">Проект · ${createdLabel}</p><h1>${h(project.title)}</h1></div><button type="button" class="detail-edit" data-edit-project="${h(project.id)}" aria-label="Редактировать">✎</button></header>
     <section class="detail-summary"><div class="detail-badges"><span class="status-pill ${tone}">${h(label)}</span>${deadlineBadge(project)}</div>${progress != null ? `<div class="progress-track slim"><span style="width:${progress}%"></span></div><small>Завершён на ${progress}%</small>` : ''}<p>${h(project.description || '')}</p><div class="next-block"><small>Ближайшее действие</small><b>${h(project.nextAction || 'Не задано')}</b><span>Следующий ход: ${h(project.nextMove || '–')}</span></div></section>
     <section class="data-section"><div class="section-line"><h2>Оплата</h2><div class="section-actions"><button type="button" class="text-button" data-edit-project="${h(project.id)}">Сумма</button><button type="button" class="text-button" data-add-payment="${h(project.id)}">+ деньги</button></div></div>
       <div class="stats-inline"><div><small>Всего</small><b>${formatMoney(payment.total)}</b></div><div><small>Оплачено</small><b>${formatMoney(payment.paid)}</b></div><div><small>Остаток</small><b>${formatMoney(rest)}</b></div></div>

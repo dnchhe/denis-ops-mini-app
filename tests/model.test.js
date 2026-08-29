@@ -10,6 +10,7 @@ import {
   filterWellbeingByDays,
   hasSleepEntryForDate,
   getScreenTitle,
+  normalizeProject,
   setCurrentTaskStatus,
   setVacancyStatus,
   submitCheckin,
@@ -21,6 +22,11 @@ test('initial state opens Today with demonstration content', () => {
   assert.equal(getScreenTitle(state), 'Сегодня')
   assert.equal(state.projects.length, 3)
   assert.equal(state.projects.every((project) => project.demo === true), true)
+})
+
+test('project with unknown start date remains unknown', () => {
+  const project = normalizeProject({ id:'p1',title:'Проект',status:'active',createdAt:null,payment:{} })
+  assert.equal(project.createdAt, null)
 })
 
 test('current task can be started', () => {

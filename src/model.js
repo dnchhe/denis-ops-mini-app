@@ -143,7 +143,7 @@ export function normalizeProject(project) {
   const paidFromEntries = entries.reduce((sum,entry) => sum + (Number(entry.amount) || 0),0)
   const paid = toNumber(payment.paid) ?? (entries.length ? paidFromEntries : null)
   return { ...project, status:['active','waiting','archived'].includes(project.status) ? project.status : 'waiting', url:project.url || '', deadlineText:project.deadlineText || '', deadlineDate:project.deadlineDate || null,
-    createdAt:project.createdAt || new Date().toISOString(), payment:{ total,paid,entries }, prepaid:Number(paid) > 0, started:project.status === 'active', roadmap, items:Array.isArray(project.items) ? project.items : [] }
+    createdAt:project.createdAt || null, payment:{ total,paid,entries }, prepaid:Number(paid) > 0, started:project.status === 'active', roadmap, items:Array.isArray(project.items) ? project.items : [] }
 }
 
 export function countableProjects(state) { return state.projects.map(normalizeProject).filter((project) => project.status !== 'archived' && (project.prepaid || project.started)) }
