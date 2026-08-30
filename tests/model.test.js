@@ -22,6 +22,7 @@ test('initial state opens Today with demonstration content', () => {
   assert.equal(getScreenTitle(state), 'Сегодня')
   assert.equal(state.projects.length, 3)
   assert.equal(state.projects.every((project) => project.demo === true), true)
+  assert.equal(state.projectSort, 'deadline')
 })
 
 test('project with unknown start date remains unknown', () => {

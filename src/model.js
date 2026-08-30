@@ -111,7 +111,7 @@ export function createInitialState() {
     vacancySearch:{ schedule:['12:00','16:00','20:00'], weekdaysOnly:true, lastRun:'Ещё не запускался по расписанию', status:'scheduled' },
     projects:structuredClone(projects), vacancies:structuredClone(vacancies), selectedProjectId:null, selectedVacancyId:null,
     checkin:{ energy:null,mood:null,focus:null,anxiety:null,sleepHours:null,sleepQuality:null,distraction:null,activity:null,activityNote:'',comment:'' },
-    activities:[], projectFilter:'all', projectSort:'created', wellbeingHistory:createDemoWellbeingHistory(), wellbeingPeriod:7, checkinResult:'',
+    activities:[], projectFilter:'all', projectSort:'deadline', wellbeingHistory:createDemoWellbeingHistory(), wellbeingPeriod:7, checkinResult:'',
   }
 }
 
